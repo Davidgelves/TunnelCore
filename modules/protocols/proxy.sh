@@ -180,9 +180,16 @@ tc_proxy_menu() {
                         continue
                     fi
 
-                    tc_proxy_start "$port" "200" "$TC_SELECTED_TARGET" ""
+                    printf '%bEstado HTTP (101 WebSocket / 200 Payload) [Enter = 200]:%b ' "$TC_DARK_GREEN" "$TC_NC"
+                    read -r st
+                    [[ -z "$st" ]] && st="200"
+
+                    printf '%bMinibanner / Respuesta de Encabezado (Opcional - Enter para omitir):%b ' "$TC_DARK_GREEN" "$TC_NC"
+                    read -r banner
+
+                    tc_proxy_start "$port" "$st" "$TC_SELECTED_TARGET" "$banner"
                     if tc_proxy_is_running; then
-                        tc_msg_ok "Proxy HTTP/SOCKS activado en puerto $port redirigiendo a $TC_SELECTED_TARGET."
+                        tc_msg_ok "Proxy HTTP/SOCKS activado en puerto $port (Status $st) redirigiendo a $TC_SELECTED_TARGET."
                     else
                         tc_msg_err "Error al iniciar Proxy HTTP/SOCKS."
                     fi

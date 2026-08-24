@@ -56,6 +56,15 @@ tc_banner_remove() {
     fi
 }
 
+tc_banner_delete() {
+    if tc_confirm "¿Está seguro de eliminar el archivo de banner?"; then
+        tc_banner_remove
+        rm -f "$TC_BANNER_FILE"
+        tc_msg_ok "Banner eliminado por completo."
+    fi
+    tc_pause
+}
+
 # ── Pegar Banner Personalizado ────────────────────────────────
 tc_banner_paste_custom() {
     tc_clear
@@ -91,13 +100,12 @@ tc_banner_paste_custom() {
 }
 
 tc_banner_menu() {
-    tc_banner_init
     while true; do
         tc_clear
         tc_title "CONFIGURACIÓN DE BANNER SSH"
 
         local banner_active="[OFF]"
-        if grep -qE "^Banner /etc/tunnelcore/banner" "$TC_SSHD_CONF" 2>/dev/null; then
+        if grep -qE "^Banner /etc/tunnelcore/banner" "$TC_SSHD_CONF" 2>/dev/null && [[ -f "$TC_BANNER_FILE" ]]; then
             banner_active="${TC_GREEN}[ON]${TC_NC}"
         else
             banner_active="${TC_RED}[OFF]${TC_NC}"
@@ -105,12 +113,13 @@ tc_banner_menu() {
 
         printf '%bESTADO DEL BANNER:%b %b\n' "$TC_DARK_GREEN" "$TC_NC" "$banner_active"
         tc_line
-        tc_opt "1" "ACTIVAR / APLICAR BANNER ACTUAL"
+        tc_opt "1" "ACTIVAR / APLICAR BANNER"
         tc_opt "2" "PEGAR BANNER PERSONALIZADO (HTML / TEXTO)"
         tc_opt "3" "EDITAR CÓDIGO CON NANO"
         tc_opt "4" "RESTAURAR BANNER POR DEFECTO"
         tc_opt "5" "VER VISTA PREVIA DEL BANNER"
-        tc_opt "6" "DESACTIVAR BANNER"
+        tc_opt "6" "ELIMINAR BANNER"
+        tc_opt "7" "DESACTIVAR BANNER"
         tc_line
         tc_opt "0" "$(_t 'back')"
         tc_line
@@ -127,6 +136,7 @@ tc_banner_menu() {
                 tc_banner_paste_custom
                 ;;
             3|03)
+                tc_banner_init
                 tc_clear
                 tc_title "EDITAR BANNER (Guardar: Ctrl+O, Salir: Ctrl+X)"
                 if command -v nano >/dev/null 2>&1; then
@@ -149,12 +159,19 @@ tc_banner_menu() {
             5|05)
                 tc_clear
                 tc_title "VISTA PREVIA DEL BANNER"
-                cat "$TC_BANNER_FILE"
-                echo ""
+                if [[ -f "$TC_BANNER_FILE" ]]; then
+                    cat "$TC_BANNER_FILE"
+                    echo ""
+                else
+                    tc_msg_warn "No existe ningún banner creado."
+                fi
                 tc_line
                 tc_pause
                 ;;
             6|06)
+                tc_banner_delete
+                ;;
+            7|07)
                 tc_banner_remove
                 tc_msg_ok "Banner SSH desactivado."
                 tc_pause
