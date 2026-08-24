@@ -1,99 +1,92 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 #  TunnelCore — modules/banner.sh
-#  Gestión y Editor Avanzado de Banner SSH / Dropbear
+#  Gestión y Personalización de Banner SSH / Dropbear
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
 
 TC_BANNER_FILE="/etc/tunnelcore/banner"
 TC_SSHD_CONF="/etc/ssh/sshd_config"
+TC_DROPBEAR_DEFAULT="/etc/default/dropbear"
+
+# ── Banner por defecto limpio de TunnelCore ───────────────────
+tc_banner_set_default() {
+    mkdir -p "/etc/tunnelcore"
+    cat > "$TC_BANNER_FILE" <<'EOF'
+<h3 style="text-align: center;"><strong><span style="color: #00ffff;"><span style="color: #000000;">BANNER</span><br />TunnelCore<br /></span><br />By: J DAVID AG<br /></strong><strong><br /></strong></h3>
+<p style="text-align: center;">&nbsp;</p>
+EOF
+}
 
 tc_banner_init() {
     mkdir -p "/etc/tunnelcore"
     if [[ ! -f "$TC_BANNER_FILE" ]]; then
-        tc_banner_template_1 "TUNNELCORE VPS" "PROHIBIDO TORRENT / SPAM / MULTICUENTA"
+        tc_banner_set_default
     fi
 }
 
 tc_banner_apply() {
     tc_banner_init
+    # Aplicar a OpenSSH
     if [[ -f "$TC_SSHD_CONF" ]]; then
         sed -i '/^#\?Banner /d' "$TC_SSHD_CONF"
         echo "Banner ${TC_BANNER_FILE}" >> "$TC_SSHD_CONF"
         systemctl restart ssh >/dev/null 2>&1 || systemctl restart sshd >/dev/null 2>&1 || true
     fi
+
+    # Aplicar a Dropbear si está presente
+    if [[ -f "$TC_DROPBEAR_DEFAULT" ]]; then
+        sed -i 's|^#\?DROPBEAR_BANNER=.*|DROPBEAR_BANNER="/etc/tunnelcore/banner"|' "$TC_DROPBEAR_DEFAULT"
+        systemctl restart dropbear >/dev/null 2>&1 || service dropbear restart >/dev/null 2>&1 || true
+    fi
 }
 
 tc_banner_remove() {
+    # Remover de OpenSSH
     if [[ -f "$TC_SSHD_CONF" ]]; then
         sed -i '/^#\?Banner /d' "$TC_SSHD_CONF"
         systemctl restart ssh >/dev/null 2>&1 || systemctl restart sshd >/dev/null 2>&1 || true
     fi
+
+    # Remover de Dropbear
+    if [[ -f "$TC_DROPBEAR_DEFAULT" ]]; then
+        sed -i 's|^#\?DROPBEAR_BANNER=.*|DROPBEAR_BANNER=""|' "$TC_DROPBEAR_DEFAULT"
+        systemctl restart dropbear >/dev/null 2>&1 || service dropbear restart >/dev/null 2>&1 || true
+    fi
 }
 
-tc_banner_template_1() {
-    local t="${1:-BIENVENIDO A TUNNELCORE}" w="${2:-PROHIBIDO SPAM / TORRENT}"
-    cat > "$TC_BANNER_FILE" <<EOF
-<font color="#00ff7f"><b>================================================</b></font><br>
-<font color="#4ce4ff"><b>          ${t}        </b></font><br>
-<font color="#00ff7f"><b>================================================</b></font><br>
-<font color="#ffffff">${w}</font><br>
-<font color="#00ff7f"><b>================================================</b></font>
-EOF
-}
-
-tc_banner_template_2() {
-    local t="${1:-TUNNELCORE VIP SERVER}" w="${2:-DISFRUTA TU CONEXION PREMIUM}"
-    cat > "$TC_BANNER_FILE" <<EOF
-<font color="#ff0055"><b>╔══════════════════════════════════════════════╗</b></font><br>
-<font color="#ffcc00"><b>║          ${t}         ║</b></font><br>
-<font color="#ff0055"><b>╚══════════════════════════════════════════════╝</b></font><br>
-<font color="#00ffff">★ ${w} ★</font><br>
-<font color="#ff0055"><b>════════════════════════════════════════════════</b></font>
-EOF
-}
-
-tc_banner_template_3() {
-    local t="${1:-TUNNELCORE ACCESS}"
-    cat > "$TC_BANNER_FILE" <<EOF
-================================================
-           ${t}
-================================================
- * Prohibido Spam / Torrent / Multicuentas
- * Soporte disponible con su proveedor
-================================================
-EOF
-}
-
-tc_banner_quick_text() {
+# ── Pegar Banner Personalizado ────────────────────────────────
+tc_banner_paste_custom() {
     tc_clear
-    tc_title "CREAR BANNER RÁPIDO"
+    tc_title "PEGAR BANNER PERSONALIZADO"
 
-    local title warning
-    printf '%bTítulo / Nombre de su servidor:%b ' "$TC_DARK_GREEN" "$TC_NC"
-    read -r title
-    [[ -z "$title" ]] && title="TUNNELCORE SERVER"
+    printf '%bInstrucciones:%b\n' "$TC_YELLOW" "$TC_NC"
+    printf ' 1. Copie su código HTML o texto.\n'
+    printf ' 2. Péguelo aquí en la terminal (Clic derecho o Ctrl+Shift+V).\n'
+    printf ' 3. Para guardar, escriba %bFIN%b en una línea vacía o presione %bCtrl+D%b.\n' "$TC_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC"
+    tc_line
+    printf '%b--- COMIENCE A PEGAR A CONTINUACIÓN ---%b\n' "$TC_CYAN" "$TC_NC"
 
-    printf '%bMensaje de advertencia o bienvenida:%b ' "$TC_DARK_GREEN" "$TC_NC"
-    read -r warning
-    [[ -z "$warning" ]] && warning="PROHIBIDO TORRENT / SPAM"
+    local tmp_banner="/tmp/banner_input_$$"
+    > "$tmp_banner"
 
-    printf '\n%bSeleccionar estilo de plantilla:%b\n' "$TC_WHITE" "$TC_NC"
-    tc_opt "1" "Estilo Neón Cyan / Verde HTML (Recomendado para apps VPN)"
-    tc_opt "2" "Estilo VIP Dorado / Fucsia HTML"
-    tc_opt "3" "Estilo Texto Plano Clásico"
-    tc_prompt "Opción [1-3]"
-    read -r style_opt
+    while IFS= read -r line; do
+        [[ "$line" == "FIN" || "$line" == "fin" ]] && break
+        echo "$line" >> "$tmp_banner"
+    done
 
-    case "$style_opt" in
-        2) tc_banner_template_2 "$title" "$warning" ;;
-        3) tc_banner_template_3 "$title" ;;
-        *) tc_banner_template_1 "$title" "$warning" ;;
-    esac
-
-    tc_banner_apply
-    tc_msg_ok "Banner generado y aplicado a OpenSSH."
+    if [[ -s "$tmp_banner" ]]; then
+        mkdir -p "/etc/tunnelcore"
+        cp -f "$tmp_banner" "$TC_BANNER_FILE"
+        rm -f "$tmp_banner"
+        tc_banner_apply
+        echo ""
+        tc_msg_ok "¡Banner personalizado guardado y aplicado con éxito!"
+    else
+        rm -f "$tmp_banner"
+        tc_msg_warn "No se ingresó ningún texto. Banner no modificado."
+    fi
     tc_pause
 }
 
@@ -113,10 +106,11 @@ tc_banner_menu() {
         printf '%bESTADO DEL BANNER:%b %b\n' "$TC_DARK_GREEN" "$TC_NC" "$banner_active"
         tc_line
         tc_opt "1" "ACTIVAR / APLICAR BANNER ACTUAL"
-        tc_opt "2" "CREADOR RÁPIDO CON PLANTILLAS Y COLORES"
-        tc_opt "3" "EDITAR CÓDIGO HTML MANUALMENTE (nano)"
-        tc_opt "4" "VER VISTA PREVIA DEL BANNER"
-        tc_opt "5" "DESACTIVAR BANNER"
+        tc_opt "2" "PEGAR BANNER PERSONALIZADO (HTML / TEXTO)"
+        tc_opt "3" "EDITAR CÓDIGO CON NANO"
+        tc_opt "4" "RESTAURAR BANNER POR DEFECTO"
+        tc_opt "5" "VER VISTA PREVIA DEL BANNER"
+        tc_opt "6" "DESACTIVAR BANNER"
         tc_line
         tc_opt "0" "$(_t 'back')"
         tc_line
@@ -126,11 +120,11 @@ tc_banner_menu() {
         case "$opt" in
             1|01)
                 tc_banner_apply
-                tc_msg_ok "Banner SSH activado."
+                tc_msg_ok "Banner SSH activado y aplicado."
                 tc_pause
                 ;;
             2|02)
-                tc_banner_quick_text
+                tc_banner_paste_custom
                 ;;
             3|03)
                 tc_clear
@@ -145,13 +139,22 @@ tc_banner_menu() {
                 tc_pause
                 ;;
             4|04)
-                tc_clear
-                tc_title "VISTA PREVIA DEL BANNER"
-                cat "$TC_BANNER_FILE"
-                tc_line
+                if tc_confirm "¿Restaurar el banner sencillo por defecto?"; then
+                    tc_banner_set_default
+                    tc_banner_apply
+                    tc_msg_ok "Banner por defecto restaurado y aplicado."
+                fi
                 tc_pause
                 ;;
             5|05)
+                tc_clear
+                tc_title "VISTA PREVIA DEL BANNER"
+                cat "$TC_BANNER_FILE"
+                echo ""
+                tc_line
+                tc_pause
+                ;;
+            6|06)
                 tc_banner_remove
                 tc_msg_ok "Banner SSH desactivado."
                 tc_pause
