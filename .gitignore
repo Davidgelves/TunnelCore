@@ -1,0 +1,21 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary and backup files
+*.tmp
+*.bak*
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# User databases and keys (never commit sensitive runtime data)
+users.db
+passwords/
+*.key
+*.pem
+*.crt
+EOF

@@ -1,0 +1,263 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════
+#  TunnelCore v1.0.0
+#  Gestión de VPS / SSH / Tunneling
+#  Autor: J DAVID AG
+# ═══════════════════════════════════════════════════════════════
+set -uo pipefail
+
+# ── Detectar directorio del script ────────────────────────────
+TC_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TC_VERSION="1.0.0"
+
+# ── Cargar librerías core ─────────────────────────────────────
+source "${TC_SCRIPT_DIR}/core/ui.sh"
+source "${TC_SCRIPT_DIR}/core/utils.sh"
+source "${TC_SCRIPT_DIR}/core/config.sh"
+source "${TC_SCRIPT_DIR}/core/lang.sh"
+
+# ── Cargar módulos disponibles ────────────────────────────────
+[[ -f "${TC_SCRIPT_DIR}/modules/users.sh" ]] && source "${TC_SCRIPT_DIR}/modules/users.sh"
+[[ -f "${TC_SCRIPT_DIR}/modules/protocols.sh" ]] && source "${TC_SCRIPT_DIR}/modules/protocols.sh"
+[[ -f "${TC_SCRIPT_DIR}/modules/banner.sh" ]] && source "${TC_SCRIPT_DIR}/modules/banner.sh"
+[[ -f "${TC_SCRIPT_DIR}/modules/limiter.sh" ]] && source "${TC_SCRIPT_DIR}/modules/limiter.sh"
+[[ -f "${TC_SCRIPT_DIR}/modules/checkusers.sh" ]] && source "${TC_SCRIPT_DIR}/modules/checkusers.sh"
+[[ -f "${TC_SCRIPT_DIR}/modules/network.sh" ]] && source "${TC_SCRIPT_DIR}/modules/network.sh"
+[[ -f "${TC_SCRIPT_DIR}/modules/vps.sh" ]] && source "${TC_SCRIPT_DIR}/modules/vps.sh"
+[[ -f "${TC_SCRIPT_DIR}/modules/settings.sh" ]] && source "${TC_SCRIPT_DIR}/modules/settings.sh"
+
+# ── Verificar root ────────────────────────────────────────────
+tc_require_root
+
+# ── Inicializar configuración ─────────────────────────────────
+tc_config_init
+tc_config_load
+
+# ═══════════════════════════════════════════════════════════════
+#  MÓDULOS / SUBMENÚS
+# ═══════════════════════════════════════════════════════════════
+
+tc_module_users() {
+    if declare -f tc_users_menu >/dev/null; then
+        tc_users_menu
+    else
+        tc_clear
+        tc_title "$(_t 'menu_users')"
+        tc_msg_warn "Módulo de usuarios no encontrado."
+        tc_pause
+    fi
+}
+
+tc_module_protocols() {
+    if declare -f tc_protocols_menu >/dev/null; then
+        tc_protocols_menu
+    else
+        tc_clear
+        tc_title "$(_t 'menu_protocols')"
+        tc_msg_warn "Módulo de protocolos no encontrado."
+        tc_pause
+    fi
+}
+
+tc_module_banner() {
+    if declare -f tc_banner_menu >/dev/null; then
+        tc_banner_menu
+    else
+        tc_clear
+        tc_title "$(_t 'menu_banner')"
+        tc_msg_warn "Módulo de banner no encontrado."
+        tc_pause
+    fi
+}
+
+tc_module_limiter() {
+    if declare -f tc_limiter_menu >/dev/null; then
+        tc_limiter_menu
+    else
+        tc_clear
+        tc_title "$(_t 'menu_limiter')"
+        tc_msg_warn "Módulo limitador no encontrado."
+        tc_pause
+    fi
+}
+
+tc_module_checkusers() {
+    if declare -f tc_checkuser_menu >/dev/null; then
+        tc_checkuser_menu
+    else
+        tc_clear
+        tc_title "$(_t 'menu_checkusers')"
+        tc_msg_warn "Módulo checkusers no encontrado."
+        tc_pause
+    fi
+}
+
+tc_module_network() {
+    if declare -f tc_network_menu >/dev/null; then
+        tc_network_menu
+    else
+        tc_clear
+        tc_title "$(_t 'menu_network')"
+        tc_msg_warn "Módulo de red no encontrado."
+        tc_pause
+    fi
+}
+
+tc_module_vps() {
+    if declare -f tc_vps_menu >/dev/null; then
+        tc_vps_menu
+    else
+        tc_clear
+        tc_title "$(_t 'menu_vps')"
+        tc_msg_warn "Módulo de VPS no encontrado."
+        tc_pause
+    fi
+}
+
+tc_module_settings() {
+    if declare -f tc_settings_menu >/dev/null; then
+        tc_settings_menu
+    else
+        tc_clear
+        tc_title "$(_t 'menu_settings')"
+        tc_msg_warn "Módulo de ajustes no encontrado."
+        tc_pause
+    fi
+}
+
+tc_module_extras() {
+    tc_clear
+    tc_title "$(_t 'menu_extras')"
+    tc_opt "1" "$(_t 'menu_vps')"
+    tc_opt "2" "$(_t 'menu_settings')"
+    tc_opt "3" "$(_t 'menu_network')"
+    tc_opt "4" "$(_t 'settings_lang')"
+    tc_line
+    tc_opt "0" "$(_t 'back')"
+    tc_line
+    tc_prompt
+    read -r ex_opt
+    case "$ex_opt" in
+        1) tc_module_vps ;;
+        2) tc_module_settings ;;
+        3) tc_module_network ;;
+        4) tc_lang_select ;;
+        0) return ;;
+        *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
+    esac
+}
+
+tc_reboot_vps() {
+    if tc_confirm "$(_t 'reboot_confirm')"; then
+        tc_msg_ok "Reiniciando / Rebooting..."
+        sleep 2
+        reboot
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════
+#  Estado del limitador
+# ═══════════════════════════════════════════════════════════════
+tc_limiter_status() {
+    if pgrep -f 'tc_limiter' >/dev/null 2>&1 || pgrep -f 'limiter' >/dev/null 2>&1; then
+        printf '%bo%b' "$TC_GREEN" "$TC_NC"
+    else
+        printf '%bx%b' "$TC_RED" "$TC_NC"
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════
+#  MENÚ PRINCIPAL
+# ═══════════════════════════════════════════════════════════════
+tc_main_menu() {
+    while true; do
+        tc_clear
+
+        # ── Header con info del sistema ───────────────────────
+        local os_short ram_total ram_pct cpu_cores cpu_pct
+        local hora connected expired total_users
+
+        os_short="$(tc_os_version)"
+        # Truncar OS a ~18 chars
+        [[ "${#os_short}" -gt 18 ]] && os_short="${os_short:0:18}"
+        ram_total="$(tc_ram_total)"
+        ram_pct="$(tc_ram_percent)"
+        cpu_cores="$(tc_cpu_cores)"
+        cpu_pct="$(tc_cpu_percent)"
+        hora="$(tc_system_time)"
+        connected="$(tc_connected_users)"
+        expired="$(tc_expired_users)"
+        total_users="$(tc_total_users)"
+
+        tc_line
+        printf '%b%*s%s%b\n' "$TC_CYAN" $(( (TC_IW - 10) / 2 )) "" "TunnelCore" "$TC_NC"
+        tc_line
+
+        # Fila 1: Sistema / RAM / CPU
+        printf '%b%-20s %-20s %-18s%b\n' "$TC_WHITE" \
+            "$(_t 'system')" "$(_t 'ram')" "$(_t 'processor')" "$TC_NC"
+        printf '%b%-20s%b %b%-20s%b %b%-18s%b\n' \
+            "$TC_PALE_GOLD" "OS: ${os_short}" "$TC_NC" \
+            "$TC_PALE_GOLD" "$(_t 'total'): ${ram_total}" "$TC_NC" \
+            "$TC_PALE_GOLD" "$(_t 'cores'): ${cpu_cores}" "$TC_NC"
+        printf '%b%-20s%b %b%-20s%b %b%-18s%b\n' \
+            "$TC_PALE_GOLD" "$(_t 'time'): ${hora}" "$TC_NC" \
+            "$TC_PALE_GOLD" "RAM: ${ram_pct}" "$TC_NC" \
+            "$TC_PALE_GOLD" "CPU: ${cpu_pct}" "$TC_NC"
+
+        tc_line
+
+        # Fila 2: Usuarios
+        printf '%b%-20s %-20s %-18s%b\n' "$TC_WHITE" \
+            "$(_t 'connected')" "$(_t 'expired')" "$(_t 'users_total')" "$TC_NC"
+        printf '%b%-20s%b %b%-20s%b %b%-18s%b\n' \
+            "$TC_NEON" "${connected}" "$TC_NC" \
+            "$TC_RED" "${expired}" "$TC_NC" \
+            "$TC_CYAN" "${total_users}" "$TC_NC"
+
+        tc_line
+
+        # ── Opciones ──────────────────────────────────────────
+        tc_opt "1"  "$(_t 'menu_users')"
+        tc_opt "2"  "$(_t 'menu_protocols')"
+        tc_opt "3"  "$(_t 'menu_banner')"
+        tc_opt "4"  "$(_t 'menu_limiter')" "  $(tc_limiter_status)"
+        tc_opt "5"  "$(_t 'menu_checkusers')"
+        tc_opt "6"  "$(_t 'menu_network')"
+        tc_opt "7"  "$(_t 'menu_vps')"
+        tc_opt "8"  "$(_t 'menu_settings')"
+        tc_opt "9"  "$(_t 'menu_extras')"
+        tc_opt "10" "$(_t 'menu_reboot')"
+        tc_line
+
+        tc_prompt
+        read -r opcion
+
+        case "${opcion}" in
+            1|01) tc_module_users ;;
+            2|02) tc_module_protocols ;;
+            3|03) tc_module_banner ;;
+            4|04) tc_module_limiter ;;
+            5|05) tc_module_checkusers ;;
+            6|06) tc_module_network ;;
+            7|07) tc_module_vps ;;
+            8|08) tc_module_settings ;;
+            9|09) tc_module_extras ;;
+            10)   tc_reboot_vps ;;
+            0|00|q|Q)
+                tc_clear
+                tc_msg_ok "$(_t 'goodbye')"
+                exit 0
+                ;;
+            *)
+                tc_msg_err "$(_t 'invalid_option')"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+# ═══════════════════════════════════════════════════════════════
+#  INICIO
+# ═══════════════════════════════════════════════════════════════
+tc_main_menu
