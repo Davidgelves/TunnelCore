@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 # ═══════════════════════════════════════════════════════════════
-#  TunnelCore — Proxy HTTP / SOCKS (Payload / Injector)
-#  Optimizado: socket.listen(128), thread cleanup, status & header custom
+#  TunnelCore — Proxy HTTP / SOCKS (Payload / Injector / Auto)
+#  Optimizado: socket.listen(128), thread cleanup, modo AUTO/NEUTRO
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
 import socket
@@ -14,7 +14,7 @@ from datetime import datetime
 
 IP = "0.0.0.0"
 PORT = 80
-HTTP_STATUS = "200"
+HTTP_STATUS = "AUTO"
 DEFAULT_HOST = "127.0.0.1:22"
 CUSTOM_BANNER = ""
 PASS = ""
@@ -26,7 +26,7 @@ if len(sys.argv) > 1:
         pass
 
 if len(sys.argv) > 2:
-    HTTP_STATUS = str(sys.argv[2]).strip()
+    HTTP_STATUS = str(sys.argv[2]).strip().upper()
 
 if len(sys.argv) > 3:
     DEFAULT_HOST = str(sys.argv[3]).strip()
@@ -38,9 +38,39 @@ BUFLEN = 65536
 TIMEOUT = 60
 
 
-def compose_handshake_response(status, banner):
-    st = str(status).strip()
+def get_response_bytes(status, banner, text_request=""):
+    st = str(status).strip().upper()
 
+    # Modo AUTO / NEUTRO: Detecta automáticamente WebSocket o Payload 200
+    if st == "AUTO" or st == "NEUTRO" or st == "AUTO/NEUTRO":
+        low = text_request.lower()
+        if "upgrade: websocket" in low or "sec-websocket-key" in low:
+            return (
+                b"HTTP/1.1 101 Switching Protocols\r\n"
+                b"Upgrade: websocket\r\n"
+                b"Connection: Upgrade\r\n"
+                b"\r\n"
+            )
+        elif banner:
+            body = banner.encode("latin1", errors="replace")
+            return (
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/html; charset=utf-8\r\n"
+                + f"Content-Length: {len(body)}\r\n".encode("latin1")
+                + b"Connection: keep-alive\r\n\r\n"
+                + body
+            )
+        else:
+            return (
+                b"HTTP/1.1 200 OK\r\n"
+                b"Connection: keep-alive\r\n"
+                b"Content-Length: 0\r\n"
+                b"\r\n"
+                b"HTTP/1.1 200 Connection Established\r\n"
+                b"\r\n"
+            )
+
+    # Modo Fijo
     if st == "101":
         return (
             b"HTTP/1.1 101 Switching Protocols\r\n"
@@ -70,9 +100,6 @@ def compose_handshake_response(status, banner):
         return f"HTTP/1.1 {st} OK\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n".encode("latin1")
 
 
-RESPONSE = compose_handshake_response(HTTP_STATUS, CUSTOM_BANNER)
-
-
 class Server:
     def __init__(self, host, port):
         self.host = host
@@ -90,7 +117,7 @@ class Server:
         self.soc.listen(128)
         self.running = True
 
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] TunnelCore Proxy HTTP/SOCKS escuchando en {self.host}:{self.port} (Status {HTTP_STATUS})")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] TunnelCore Proxy escuchando en {self.host}:{self.port} (Status {HTTP_STATUS})")
 
         try:
             while self.running:
@@ -177,8 +204,11 @@ class ConnectionHandler(threading.Thread):
                 self.client.sendall(b"HTTP/1.1 403 Forbidden\r\n\r\n")
                 return
 
+            # Obtener respuesta adecuada (dinámica en modo AUTO o fija según status)
+            response_bytes = get_response_bytes(HTTP_STATUS, CUSTOM_BANNER, text)
+
             self._connect_target(host_port)
-            self.client.sendall(RESPONSE)
+            self.client.sendall(response_bytes)
             self._bridge()
 
         except Exception:
