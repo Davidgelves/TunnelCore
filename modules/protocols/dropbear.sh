@@ -26,25 +26,50 @@ tc_dropbear_status_mark() {
     fi
 }
 
+tc_dropbear_get_port() {
+    if [[ -f "$TC_DROPBEAR_DEFAULT" ]]; then
+        grep -oE '^DROPBEAR_PORT=[0-9]+' "$TC_DROPBEAR_DEFAULT" | cut -d'=' -f2 || echo "90"
+    else
+        echo "90"
+    fi
+}
+
 tc_dropbear_install() {
     tc_clear
     tc_title "INSTALAR DROPBEAR SSH"
 
-    local port extra_port
-    printf '%bPuerto principal para Dropbear [Enter = 110]:%b ' "$TC_DARK_GREEN" "$TC_NC"
+    local port
+    printf '%bPuerto para Dropbear [Enter = 90]:%b ' "$TC_DARK_GREEN" "$TC_NC"
     read -r port
-    [[ -z "$port" ]] && port="110"
+    [[ -z "$port" ]] && port="90"
 
-    printf '%bPuerto secundario (opcional) [Enter = 443]:%b ' "$TC_DARK_GREEN" "$TC_NC"
-    read -r extra_port
-    [[ -z "$extra_port" ]] && extra_port="443"
+    if ! tc_valid_port "$port"; then
+        tc_msg_err "Puerto no válido."
+        tc_pause
+        return
+    fi
+
+    if tc_port_in_use "$port"; then
+        tc_msg_warn "El puerto $port ya está en uso."
+        if ! tc_confirm "¿Continuar de todos modos?"; then
+            return
+        fi
+    fi
 
     tc_apt_install dropbear
 
     if [[ -f "$TC_DROPBEAR_DEFAULT" ]]; then
         sed -i 's/NO_START=1/NO_START=0/g' "$TC_DROPBEAR_DEFAULT"
         sed -i "s/DROPBEAR_PORT=.*/DROPBEAR_PORT=${port}/g" "$TC_DROPBEAR_DEFAULT"
-        sed -i "s/DROPBEAR_EXTRA_ARGS=.*/DROPBEAR_EXTRA_ARGS=\"-p ${extra_port}\"/g" "$TC_DROPBEAR_DEFAULT"
+        sed -i 's/DROPBEAR_EXTRA_ARGS=.*/DROPBEAR_EXTRA_ARGS=""/g' "$TC_DROPBEAR_DEFAULT"
+    else
+        cat > "$TC_DROPBEAR_DEFAULT" <<EOF
+NO_START=0
+DROPBEAR_PORT=${port}
+DROPBEAR_EXTRA_ARGS=""
+DROPBEAR_BANNER=""
+DROPBEAR_RECEIVE_WINDOW=65536
+EOF
     fi
 
     # Configurar PasswordAuthentication en SSH si no estaba
@@ -56,9 +81,9 @@ tc_dropbear_install() {
     systemctl restart dropbear >/dev/null 2>&1 || service dropbear restart >/dev/null 2>&1 || true
 
     if tc_dropbear_is_running; then
-        tc_msg_ok "Dropbear SSH activo en puertos: $port, $extra_port"
+        tc_msg_ok "Dropbear SSH activo en puerto: $port"
     else
-        tc_msg_err "Error al iniciar Dropbear."
+        tc_msg_err "Error al iniciar Dropbear. Verifique que el puerto no esté en conflicto."
     fi
     tc_pause
 }
@@ -73,6 +98,9 @@ tc_dropbear_stop() {
 tc_dropbear_menu() {
     while true; do
         tc_clear
+        local cur_port
+        cur_port="$(tc_dropbear_get_port)"
+
         tc_title "GESTIÓN DROPBEAR SSH $(tc_dropbear_status_mark)"
 
         if ! tc_dropbear_is_running; then
@@ -88,8 +116,10 @@ tc_dropbear_menu() {
                 *) tc_msg_err "Opción no válida."; sleep 1 ;;
             esac
         else
+            printf '%bPUERTO DROPBEAR:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$cur_port" "$TC_NC"
+            tc_line
             tc_opt "1" "DESACTIVAR DROPBEAR"
-            tc_opt "2" "RECONFIGURAR PUERTOS"
+            tc_opt "2" "CAMBIAR PUERTO"
             tc_opt "3" "REINICIAR SERVICIO"
             tc_line
             tc_opt "0" "VOLVER"
@@ -106,4 +136,3 @@ tc_dropbear_menu() {
         fi
     done
 }
-

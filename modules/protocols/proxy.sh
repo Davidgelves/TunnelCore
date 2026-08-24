@@ -46,6 +46,42 @@ PROXY_BANNER="${PROXY_BANNER:-}"
 EOF
 }
 
+# ── Submenú para seleccionar a qué puerto redirigir el Proxy ───
+tc_proxy_select_target() {
+    local default_dropbear_port="90"
+    if [[ -f /etc/default/dropbear ]]; then
+        default_dropbear_port="$(grep -oE '^DROPBEAR_PORT=[0-9]+' /etc/default/dropbear 2>/dev/null | cut -d'=' -f2 || echo "90")"
+    fi
+
+    tc_clear
+    tc_title "REDIRIGIR PUERTO HTTP PROXY"
+    printf '%b%-10s %-20s %s%b\n' "$TC_WHITE" "OPCIÓN" "PUERTO" "DESTINO" "$TC_NC"
+    tc_line
+    tc_opt "1" "22    -----------> SSH (OpenSSH)"
+    tc_opt "2" "${default_dropbear_port}    -----------> Dropbear"
+    tc_opt "3" "PUERTO PERSONALIZADO"
+    tc_line
+    tc_opt "0" "$(_t 'back')"
+    tc_line
+    tc_prompt
+    read -r t_opt
+
+    case "$t_opt" in
+        1) echo "127.0.0.1:22" ;;
+        2) echo "127.0.0.1:${default_dropbear_port}" ;;
+        3)
+            printf '%bIngrese puerto destino local [1-65535]:%b ' "$TC_DARK_GREEN" "$TC_NC" >&2
+            read -r cust_p
+            if tc_valid_port "$cust_p"; then
+                echo "127.0.0.1:${cust_p}"
+            else
+                echo "127.0.0.1:22"
+            fi
+            ;;
+        0|*) echo "CANCEL" ;;
+    esac
+}
+
 tc_proxy_start() {
     local port="$1" status_code="${2:-200}" target="${3:-127.0.0.1:22}" banner="${4:-}"
     mkdir -p "$TC_PROXY_DIR"
@@ -106,7 +142,7 @@ tc_proxy_menu() {
             read -r opt
             case "$opt" in
                 1|01)
-                    printf '%bPuerto de escucha [Enter = 80]:%b ' "$TC_DARK_GREEN" "$TC_NC"
+                    printf '%bPuerto de escucha del Proxy [Enter = 80]:%b ' "$TC_DARK_GREEN" "$TC_NC"
                     read -r port
                     [[ -z "$port" ]] && port="80"
                     if ! tc_valid_port "$port"; then
@@ -115,27 +151,27 @@ tc_proxy_menu() {
                         continue
                     fi
 
+                    local target_chosen
+                    target_chosen="$(tc_proxy_select_target)"
+                    [[ "$target_chosen" == "CANCEL" ]] && continue
+
                     printf '%bEstado HTTP (200 OK, 101 WS, 204 No Content) [Enter = 200]:%b ' "$TC_DARK_GREEN" "$TC_NC"
                     read -r st
                     [[ -z "$st" ]] && st="200"
 
-                    printf '%bPuerto destino local (SSH=22, Dropbear=110) [Enter = 22]:%b ' "$TC_DARK_GREEN" "$TC_NC"
-                    read -r tgt_port
-                    [[ -z "$tgt_port" ]] && tgt_port="22"
-
-                    printf '%bMinibanner HTML / Respuesta personalizada (opcional):%b ' "$TC_DARK_GREEN" "$TC_NC"
+                    printf '%bMinibanner HTML / Respuesta de Encabezado (opcional):%b ' "$TC_DARK_GREEN" "$TC_NC"
                     read -r banner
 
-                    tc_proxy_start "$port" "$st" "127.0.0.1:${tgt_port}" "$banner"
+                    tc_proxy_start "$port" "$st" "$target_chosen" "$banner"
                     if tc_proxy_is_running; then
-                        tc_msg_ok "Proxy HTTP/SOCKS activado en puerto $port."
+                        tc_msg_ok "Proxy HTTP/SOCKS activado en puerto $port redirigiendo a $target_chosen."
                     else
                         tc_msg_err "Error al iniciar Proxy HTTP/SOCKS."
                     fi
                     tc_pause
                     ;;
                 0|00) break ;;
-                *) tc_msg_err "Opción no válida."; sleep 1 ;;
+                *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
             esac
         else
             printf '%bPUERTO:%b %b%s%b  %bSTATUS:%b %b%s%b  %bDESTINO:%b %b%s%b\n' \
@@ -144,12 +180,14 @@ tc_proxy_menu() {
                 "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${PROXY_TARGET:-127.0.0.1:22}" "$TC_NC"
             tc_line
             tc_opt "1" "DESACTIVAR PROXY"
-            tc_opt "2" "RECONFIGURAR PUERTO / STATUS / DESTINO"
-            tc_opt "3" "PERSONALIZAR MINIBANNER / RESPUESTA"
-            tc_opt "4" "REINICIAR SERVICIO"
-            tc_opt "5" "VER LOGS EN VIVO"
+            tc_opt "2" "CAMBIAR DESTINO DE REDIRECCIÓN (SSH / DROPBEAR)"
+            tc_opt "3" "CAMBIAR PUERTO DE ESCUCHA"
+            tc_opt "4" "CAMBIAR ESTADO HTTP (200, 101, etc.)"
+            tc_opt "5" "PERSONALIZAR MINIBANNER / ENCABEZADO"
+            tc_opt "6" "REINICIAR SERVICIO"
+            tc_opt "7" "VER LOGS EN VIVO"
             tc_line
-            tc_opt "0" "VOLVER"
+            tc_opt "0" "$(_t 'back')"
             tc_line
             tc_prompt
             read -r opt
@@ -160,20 +198,34 @@ tc_proxy_menu() {
                     tc_pause
                     ;;
                 2|02)
-                    printf '%bNuevo puerto [Enter = %s]:%b ' "$TC_DARK_GREEN" "${PROXY_PORT:-80}" "$TC_NC"
-                    read -r new_port
-                    [[ -z "$new_port" ]] && new_port="${PROXY_PORT:-80}"
-                    printf '%bNuevo estado HTTP (200 / 101) [Enter = %s]:%b ' "$TC_DARK_GREEN" "${PROXY_STATUS:-200}" "$TC_NC"
-                    read -r new_st
-                    [[ -z "$new_st" ]] && new_st="${PROXY_STATUS:-200}"
-                    printf '%bNuevo destino local [Enter = %s]:%b ' "$TC_DARK_GREEN" "${PROXY_TARGET:-127.0.0.1:22}" "$TC_NC"
-                    read -r new_tgt
-                    [[ -z "$new_tgt" ]] && new_tgt="${PROXY_TARGET:-127.0.0.1:22}"
-                    tc_proxy_start "$new_port" "$new_st" "$new_tgt" "${PROXY_BANNER:-}"
-                    tc_msg_ok "Proxy reconfigurado y reiniciado."
+                    local new_target
+                    new_target="$(tc_proxy_select_target)"
+                    if [[ "$new_target" != "CANCEL" ]]; then
+                        tc_proxy_start "${PROXY_PORT:-80}" "${PROXY_STATUS:-200}" "$new_target" "${PROXY_BANNER:-}"
+                        tc_msg_ok "Destino actualizado a $new_target."
+                    fi
                     tc_pause
                     ;;
                 3|03)
+                    printf '%bNuevo puerto de escucha [Enter = %s]:%b ' "$TC_DARK_GREEN" "${PROXY_PORT:-80}" "$TC_NC"
+                    read -r new_p
+                    if [[ -n "$new_p" ]] && tc_valid_port "$new_p"; then
+                        tc_proxy_start "$new_p" "${PROXY_STATUS:-200}" "${PROXY_TARGET:-127.0.0.1:22}" "${PROXY_BANNER:-}"
+                        tc_msg_ok "Puerto actualizado a $new_p."
+                    else
+                        tc_msg_err "Puerto no válido."
+                    fi
+                    tc_pause
+                    ;;
+                4|04)
+                    printf '%bNuevo estado HTTP (200 / 101 / 204) [Enter = %s]:%b ' "$TC_DARK_GREEN" "${PROXY_STATUS:-200}" "$TC_NC"
+                    read -r new_st
+                    [[ -z "$new_st" ]] && new_st="${PROXY_STATUS:-200}"
+                    tc_proxy_start "${PROXY_PORT:-80}" "$new_st" "${PROXY_TARGET:-127.0.0.1:22}" "${PROXY_BANNER:-}"
+                    tc_msg_ok "Estado HTTP actualizado a $new_st."
+                    tc_pause
+                    ;;
+                5|05)
                     printf '%bMinibanner actual:%b %s\n' "$TC_DARK_GREEN" "$TC_NC" "${PROXY_BANNER:-Ninguno}"
                     printf '%bIngrese nuevo minibanner (Enter para borrar):%b ' "$TC_DARK_GREEN" "$TC_NC"
                     read -r new_ban
@@ -181,18 +233,18 @@ tc_proxy_menu() {
                     tc_msg_ok "Minibanner actualizado."
                     tc_pause
                     ;;
-                4|04)
+                6|06)
                     systemctl restart tunnelcore-proxy >/dev/null 2>&1
                     tc_msg_ok "Proxy reiniciado."
                     tc_pause
                     ;;
-                5|05)
+                7|07)
                     tc_clear
                     tc_title "LOGS PROXY (Ctrl+C para salir)"
                     journalctl -u tunnelcore-proxy -f --no-pager
                     ;;
                 0|00) break ;;
-                *) tc_msg_err "Opción no válida."; sleep 1 ;;
+                *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
             esac
         fi
     done
