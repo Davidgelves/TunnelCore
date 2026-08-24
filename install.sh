@@ -57,10 +57,20 @@ else
     fi
 fi
 
-# 4. Permisos y enlaces simbólicos
+# 4. Permisos y enlaces simbólicos (para ejecutar con 'tunnelcore' o 'menu')
 chmod -R +x "${INSTALL_DIR}"
 ln -sf "${INSTALL_DIR}/tunnelcore" /usr/local/bin/tunnelcore
+ln -sf "${INSTALL_DIR}/tunnelcore" /usr/bin/tunnelcore 2>/dev/null || true
 ln -sf "${INSTALL_DIR}/tunnelcore" /bin/tunnelcore 2>/dev/null || true
+
+ln -sf "${INSTALL_DIR}/tunnelcore" /usr/local/bin/menu
+ln -sf "${INSTALL_DIR}/tunnelcore" /usr/bin/menu 2>/dev/null || true
+ln -sf "${INSTALL_DIR}/tunnelcore" /bin/menu 2>/dev/null || true
+
+# Configurar alias en .bashrc
+if ! grep -q "alias menu=" /root/.bashrc 2>/dev/null; then
+    echo "alias menu='tunnelcore'" >> /root/.bashrc
+fi
 
 # 5. Directorios de configuración
 mkdir -p /etc/tunnelcore/passwords /etc/tunnelcore/backups
@@ -72,10 +82,10 @@ echo ""
 echo -e "${GREEN}============================================================${NC}"
 echo -e "${GREEN}        ¡TUNNELCORE INSTALADO CORRECTAMENTE!               ${NC}"
 echo -e "${GREEN}============================================================${NC}"
-echo -e "${WHITE}Para abrir el menú en cualquier momento, escriba:${NC} ${CYAN}tunnelcore${NC}"
+echo -e "${WHITE}Para abrir el menú en cualquier momento, escriba:${NC} ${CYAN}menu${NC} ${WHITE}o${NC} ${CYAN}tunnelcore${NC}"
 echo -e "${GREEN}============================================================${NC}"
 echo ""
-sleep 2
+sleep 1
 
 # 6. Lanzar menú
 /usr/local/bin/tunnelcore

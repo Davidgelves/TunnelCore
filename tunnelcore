@@ -6,8 +6,19 @@
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
 
-# ── Detectar directorio del script ────────────────────────────
-TC_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ── Detectar directorio real del script (resolviendo enlaces simbólicos) ────
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+TC_SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+
+# Fallback si se ejecuta desde symlink en /usr/local/bin o /bin
+if [[ ! -f "${TC_SCRIPT_DIR}/core/ui.sh" && -f "/opt/tunnelcore/core/ui.sh" ]]; then
+    TC_SCRIPT_DIR="/opt/tunnelcore"
+fi
 TC_VERSION="1.0.0"
 
 # ── Cargar librerías core ─────────────────────────────────────
