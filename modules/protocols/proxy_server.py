@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 # ═══════════════════════════════════════════════════════════════
-#  TunnelCore — Proxy SOCKS / HTTP Injector Core (Python 3)
-#  Optimizado: socket.listen(128), thread cleanup, graceful timeout
+#  TunnelCore — Proxy HTTP / SOCKS (Payload / Injector)
+#  Optimizado: socket.listen(128), thread cleanup, status & header custom
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
 import socket
@@ -14,24 +14,63 @@ from datetime import datetime
 
 IP = "0.0.0.0"
 PORT = 80
+HTTP_STATUS = "200"
+DEFAULT_HOST = "127.0.0.1:22"
+CUSTOM_BANNER = ""
+PASS = ""
+
 if len(sys.argv) > 1:
     try:
         PORT = int(sys.argv[1])
     except ValueError:
         pass
 
+if len(sys.argv) > 2:
+    HTTP_STATUS = str(sys.argv[2]).strip()
+
+if len(sys.argv) > 3:
+    DEFAULT_HOST = str(sys.argv[3]).strip()
+
+if len(sys.argv) > 4:
+    CUSTOM_BANNER = str(sys.argv[4])
+
 BUFLEN = 65536
 TIMEOUT = 60
-DEFAULT_HOST = "127.0.0.1:22"
 
-RESPONSE = (
-    b"HTTP/1.1 200 OK\r\n"
-    b"Connection: keep-alive\r\n"
-    b"Content-Length: 0\r\n"
-    b"\r\n"
-    b"HTTP/1.1 200 Connection Established\r\n"
-    b"\r\n"
-)
+
+def compose_handshake_response(status, banner):
+    st = str(status).strip()
+
+    if st == "101":
+        return (
+            b"HTTP/1.1 101 Switching Protocols\r\n"
+            b"Upgrade: websocket\r\n"
+            b"Connection: Upgrade\r\n"
+            b"\r\n"
+        )
+    elif st == "200" and not banner:
+        return (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Connection: keep-alive\r\n"
+            b"Content-Length: 0\r\n"
+            b"\r\n"
+            b"HTTP/1.1 200 Connection Established\r\n"
+            b"\r\n"
+        )
+    elif banner:
+        body = banner.encode("latin1", errors="replace")
+        return (
+            f"HTTP/1.1 {st} OK\r\n".encode("latin1")
+            + b"Content-Type: text/html; charset=utf-8\r\n"
+            + f"Content-Length: {len(body)}\r\n".encode("latin1")
+            + b"Connection: keep-alive\r\n\r\n"
+            + body
+        )
+    else:
+        return f"HTTP/1.1 {st} OK\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n".encode("latin1")
+
+
+RESPONSE = compose_handshake_response(HTTP_STATUS, CUSTOM_BANNER)
 
 
 class Server:
@@ -51,7 +90,7 @@ class Server:
         self.soc.listen(128)
         self.running = True
 
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] TunnelCore Proxy SOCKS escuchando en {self.host}:{self.port}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] TunnelCore Proxy HTTP/SOCKS escuchando en {self.host}:{self.port} (Status {HTTP_STATUS})")
 
         try:
             while self.running:
@@ -203,4 +242,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

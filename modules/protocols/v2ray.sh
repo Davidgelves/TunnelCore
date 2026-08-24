@@ -12,6 +12,7 @@ TC_XRAY_DIR="/etc/xray"
 TC_XRAY_CONF="${TC_XRAY_DIR}/config.json"
 TC_XRAY_SERVICE="/etc/systemd/system/xray.service"
 TC_XRAY_USERS="${TC_XRAY_DIR}/users.db"
+TC_XRAY_DOMAIN_FILE="${TC_XRAY_DIR}/domain"
 
 tc_xray_is_installed() {
     [[ -x "$TC_XRAY_BIN" && -f "$TC_XRAY_CONF" ]]
@@ -201,7 +202,7 @@ tc_xray_install() {
     tc_pause
 }
 
-# ── Añadir cuenta V2Ray / Xray ────────────────────────────────
+# ── Añadir cuenta V2Ray / Xray con soporte SNI / Bug Host ────
 tc_xray_add_user() {
     if ! tc_xray_is_installed; then
         tc_msg_warn "Xray no está instalado. Instálelo primero."
@@ -241,63 +242,212 @@ tc_xray_add_user() {
     # 3. UUID
     uuid="$(tc_gen_uuid)"
 
-    # 4. Días de validez
-    printf '%bDuración en días [1-365] (Enter = 30):%b ' "$TC_DARK_GREEN" "$TC_NC"
+    # 4. Modo de conexión (Directo IP vs Cloudflare CDN + SNI)
+    local vps_ip cur_domain base_port ext_port tls_mode="none" add_host sni_host="" host_header=""
+    vps_ip="$(tc_public_ip)"
+    base_port="$(jq -r '.inbounds[0].port // 8443' "$TC_XRAY_CONF" 2>/dev/null)"
+    cur_domain="$(cat "$TC_XRAY_DOMAIN_FILE" 2>/dev/null || echo "")"
+
+    printf '\n%bModo de Conexión / Seguridad:%b\n' "$TC_WHITE" "$TC_NC"
+    tc_opt "1" "DIRECTO A IP (Sin TLS / HTTP WS - Puerto $base_port)"
+    tc_opt "2" "CLOUDFLARE CDN / DOMINIO (Con TLS 443 + SNI Bug Host)"
+    tc_prompt "Opción [1-2]"
+    read -r conn_opt
+
+    if [[ "$conn_opt" == "2" ]]; then
+        tls_mode="tls"
+        ext_port="443"
+        if [[ -n "$cur_domain" ]]; then
+            printf '\n%bDominio CDN (Enter para usar %s):%b ' "$TC_DARK_GREEN" "$cur_domain" "$TC_NC"
+            read -r input_domain
+            [[ -n "$input_domain" ]] && add_host="$input_domain" || add_host="$cur_domain"
+        else
+            while true; do
+                printf '\n%bDominio CDN (ej: midominio.com):%b ' "$TC_DARK_GREEN" "$TC_NC"
+                read -r add_host
+                [[ -n "$add_host" ]] && break
+                tc_msg_err "Debe ingresar un dominio."
+            done
+            echo "$add_host" > "$TC_XRAY_DOMAIN_FILE"
+        fi
+
+        printf '%bSNI / Bug Host (ej: bug.operadora.com) [Enter para usar %s]:%b ' "$TC_DARK_GREEN" "$add_host" "$TC_NC"
+        read -r input_sni
+        if [[ -n "$input_sni" ]]; then
+            sni_host="$input_sni"
+            host_header="$input_sni"
+        else
+            sni_host="$add_host"
+            host_header="$add_host"
+        fi
+    else
+        tls_mode="none"
+        ext_port="$base_port"
+        add_host="$vps_ip"
+        sni_host=""
+        host_header=""
+    fi
+
+    # 5. Días de validez
+    printf '\n%bDuración en días [1-365] (Enter = 30):%b ' "$TC_DARK_GREEN" "$TC_NC"
     read -r days
     [[ -z "$days" ]] && days="30"
     expiry_date="$(date '+%Y-%m-%d' -d "+${days} days" 2>/dev/null || echo "2030-01-01")"
 
-    # 5. Insertar en config.json usando jq
+    # 6. Insertar en config.json usando jq
     local tmp_json="${TC_XRAY_CONF}.tmp"
     tc_backup_file "$TC_XRAY_CONF"
 
     if [[ "$proto_tag" == "vless" ]]; then
         jq --arg id "$uuid" '
-          .inbounds[0].settings.clients += [{"id": $id, "level": 0}]
+          .inbounds |= map(
+            if ((.settings.clients? | type) == "array") then
+              .settings.clients += [{"id": $id, "level": 0}]
+            else
+              .
+            end
+          )
         ' "$TC_XRAY_CONF" > "$tmp_json" && mv "$tmp_json" "$TC_XRAY_CONF"
     else
         jq --arg id "$uuid" '
-          .inbounds[0].settings.clients += [{"id": $id, "alterId": 0}]
+          .inbounds |= map(
+            if ((.settings.clients? | type) == "array") then
+              .settings.clients += [{"id": $id, "alterId": 0}]
+            else
+              .
+            end
+          )
         ' "$TC_XRAY_CONF" > "$tmp_json" && mv "$tmp_json" "$TC_XRAY_CONF"
     fi
 
     echo "${nick} | ${uuid} | ${expiry_date} | ${proto_tag}" >> "$TC_XRAY_USERS"
     systemctl restart xray >/dev/null 2>&1
 
-    # 6. Generar URI de conexión
-    local port path vps_ip uri
-    port="$(jq -r '.inbounds[0].port // 8443' "$TC_XRAY_CONF" 2>/dev/null)"
-    path="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // "/tunnelcore"' "$TC_XRAY_CONF" 2>/dev/null)"
-    vps_ip="$(tc_public_ip)"
+    # 7. Generar URI de conexión
+    local path uri
+    path="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // .inbounds[0].streamSettings.xhttpSettings.path // "/tunnelcore"' "$TC_XRAY_CONF" 2>/dev/null)"
+    [[ -z "$path" || "$path" == "null" ]] && path="/tunnelcore"
 
     if [[ "$proto_tag" == "vless" ]]; then
         local enc_path
         enc_path="$(printf '%s' "$path" | sed 's/\//%2F/g')"
-        uri="vless://${uuid}@${vps_ip}:${port}?type=ws&security=none&path=${enc_path}#${nick}-TunnelCore"
+        if [[ "$tls_mode" == "tls" ]]; then
+            uri="vless://${uuid}@${add_host}:${ext_port}?type=ws&security=tls&sni=${sni_host}&host=${host_header}&path=${enc_path}#${nick}-TunnelCore"
+        else
+            uri="vless://${uuid}@${add_host}:${ext_port}?type=ws&security=none&path=${enc_path}#${nick}-TunnelCore"
+        fi
     else
-        local vmess_raw
-        vmess_raw=$(cat <<EOF
-{"v":"2","ps":"${nick}-TunnelCore","add":"${vps_ip}","port":"${port}","id":"${uuid}","aid":"0","scy":"auto","net":"ws","type":"none","host":"","path":"${path}","tls":""}
+        local vmess_json
+        vmess_json=$(cat <<EOF
+{
+  "v": "2",
+  "ps": "${nick}-TunnelCore",
+  "add": "${add_host}",
+  "port": "${ext_port}",
+  "id": "${uuid}",
+  "aid": "0",
+  "scy": "auto",
+  "net": "ws",
+  "type": "none",
+  "host": "${host_header}",
+  "path": "${path}",
+  "tls": "${tls_mode}",
+  "sni": "${sni_host}"
+}
 EOF
 )
         local b64
-        b64="$(printf '%s' "$vmess_raw" | base64 | tr -d '\n\r')"
+        b64="$(printf '%s' "$vmess_json" | base64 | tr -d '\n\r')"
         uri="vmess://${b64}"
     fi
 
-    # 7. Mostrar Ficha
+    # 8. Mostrar Ficha
     tc_clear
     tc_title "CUENTA XRAY CREADA CON ÉXITO"
     printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "USUARIO:" "$TC_NC" "$TC_WHITE" "$nick" "$TC_NC"
     printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "PROTOCOLO:" "$TC_NC" "$TC_WHITE" "$proto_name" "$TC_NC"
-    printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "PUERTO:" "$TC_NC" "$TC_WHITE" "$port" "$TC_NC"
-    printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "UUID:" "$TC_NC" "$TC_WHITE" "$uuid" "$TC_NC"
+    printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "SERVIDOR / HOST:" "$TC_NC" "$TC_WHITE" "$add_host" "$TC_NC"
+    printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "PUERTO CONEXIÓN:" "$TC_NC" "$TC_WHITE" "$ext_port" "$TC_NC"
+    [[ "$tls_mode" == "tls" ]] && printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "SNI / BUG HOST:" "$TC_NC" "$TC_WHITE" "$sni_host" "$TC_NC"
+    printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "UUID / ID:" "$TC_NC" "$TC_WHITE" "$uuid" "$TC_NC"
     printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "PATH WS:" "$TC_NC" "$TC_WHITE" "$path" "$TC_NC"
     printf '%b%-20s%b %b%s (%s días)%b\n' "$TC_DARK_GREEN" "EXPIRA:" "$TC_NC" "$TC_WHITE" "$expiry_date" "$days" "$TC_NC"
     tc_line
-    printf '%bENLACE URI PARA IMPORTAR (v2rayNG / NapsternetV / etc.):%b\n\n' "$TC_YELLOW" "$TC_NC"
+    printf '%bENLACE URI (Copiar para importar en v2rayNG / NapsternetV):%b\n\n' "$TC_YELLOW" "$TC_NC"
     printf '%b%s%b\n\n' "$TC_CYAN" "$uri" "$TC_NC"
     tc_line
+    tc_pause
+}
+
+# ── Agregar Puerto Adicional a Xray ───────────────────────────
+tc_xray_add_port() {
+    tc_clear
+    tc_title "AGREGAR PUERTO ADICIONAL A XRAY"
+
+    local new_port
+    printf '%bNuevo puerto adicional a escuchar [1-65535]:%b ' "$TC_DARK_GREEN" "$TC_NC"
+    read -r new_port
+
+    if ! tc_valid_port "$new_port"; then
+        tc_msg_err "Puerto no válido."
+        tc_pause
+        return
+    fi
+
+    if jq -e --argjson p "$new_port" '.inbounds[]? | select(.port == $p)' "$TC_XRAY_CONF" >/dev/null 2>&1; then
+        tc_msg_warn "El puerto $new_port ya existe en config.json."
+        tc_pause
+        return
+    fi
+
+    local tmp_json="${TC_XRAY_CONF}.tmp"
+    tc_backup_file "$TC_XRAY_CONF"
+
+    # Duplicar el primer inbound cambiando el puerto
+    jq --argjson port "$new_port" '
+      .inbounds += [
+        (.inbounds[0] | .port = $port | .tag = ("inbound-" + ($port|tostring)))
+      ]
+    ' "$TC_XRAY_CONF" > "$tmp_json" && mv "$tmp_json" "$TC_XRAY_CONF"
+
+    systemctl restart xray >/dev/null 2>&1
+    tc_msg_ok "Puerto $new_port añadido correctamente."
+    tc_pause
+}
+
+# ── Cambiar Path WS / XHTTP ───────────────────────────────────
+tc_xray_change_path() {
+    tc_clear
+    tc_title "MODIFICAR PATH WS / XHTTP"
+
+    local cur_path
+    cur_path="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // .inbounds[0].streamSettings.xhttpSettings.path // "/tunnelcore"' "$TC_XRAY_CONF" 2>/dev/null)"
+    printf '%bPath actual:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$cur_path" "$TC_NC"
+    tc_line
+
+    local new_path
+    printf '%bNuevo path (ej: /mipath):%b ' "$TC_DARK_GREEN" "$TC_NC"
+    read -r new_path
+    [[ -z "$new_path" ]] && return
+    [[ "$new_path" != /* ]] && new_path="/$new_path"
+
+    local tmp_json="${TC_XRAY_CONF}.tmp"
+    tc_backup_file "$TC_XRAY_CONF"
+
+    jq --arg p "$new_path" '
+      .inbounds |= map(
+        if .streamSettings.wsSettings? then
+          .streamSettings.wsSettings.path = $p
+        elif .streamSettings.xhttpSettings? then
+          .streamSettings.xhttpSettings.path = $p
+        else
+          .
+        end
+      )
+    ' "$TC_XRAY_CONF" > "$tmp_json" && mv "$tmp_json" "$TC_XRAY_CONF"
+
+    systemctl restart xray >/dev/null 2>&1
+    tc_msg_ok "Path modificado a '$new_path' y servicio reiniciado."
     tc_pause
 }
 
@@ -373,12 +523,18 @@ tc_xray_del_user() {
     if tc_confirm "¿Eliminar cuenta '$del_nick'?"; then
         local tmp_json="${TC_XRAY_CONF}.tmp"
         jq --arg id "$del_uuid" '
-          .inbounds[0].settings.clients |= map(select(.id != $id))
+          .inbounds |= map(
+            if ((.settings.clients? | type) == "array") then
+              .settings.clients |= map(select(.id != $id))
+            else
+              .
+            end
+          )
         ' "$TC_XRAY_CONF" > "$tmp_json" && mv "$tmp_json" "$TC_XRAY_CONF"
 
         sed -i "/^[[:space:]]*${del_nick}[[:space:]]*|/d" "$TC_XRAY_USERS" 2>/dev/null || true
         systemctl restart xray >/dev/null 2>&1
-        tc_msg_ok "Cuenta '$del_nick' eliminada."
+        tc_msg_ok "Cuenta '$del_nick' eliminada de todos los puertos."
     fi
     tc_pause
 }
@@ -424,12 +580,19 @@ tc_xray_menu() {
                 *) tc_msg_err "Opción no válida."; sleep 1 ;;
             esac
         else
-            tc_opt "1" "AÑADIR CUENTA (VLESS / VMESS)"
+            local ports
+            ports="$(jq -r '.inbounds[]?.port' "$TC_XRAY_CONF" 2>/dev/null | tr '\n' ' ')"
+            printf '%bPUERTO(S):%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$ports" "$TC_NC"
+            tc_line
+            tc_opt "1" "AÑADIR CUENTA (VLESS / VMESS + URI)"
             tc_opt "2" "LISTAR CUENTAS"
             tc_opt "3" "ELIMINAR CUENTA"
-            tc_opt "4" "REINICIAR SERVICIO XRAY"
-            tc_opt "5" "VER LOGS DE XRAY"
-            tc_opt "6" "DESINSTALAR XRAY"
+            tc_opt "4" "AGREGAR PUERTO ADICIONAL"
+            tc_opt "5" "MODIFICAR PATH WS / XHTTP"
+            tc_opt "6" "EDITAR CONFIG.JSON MANUALMENTE (nano)"
+            tc_opt "7" "REINICIAR SERVICIO XRAY"
+            tc_opt "8" "VER LOGS DE XRAY"
+            tc_opt "9" "DESINSTALAR XRAY"
             tc_line
             tc_opt "0" "VOLVER"
             tc_line
@@ -439,13 +602,24 @@ tc_xray_menu() {
                 1|01) tc_xray_add_user ;;
                 2|02) tc_xray_list_users ;;
                 3|03) tc_xray_del_user ;;
-                4|04) systemctl restart xray >/dev/null 2>&1 && tc_msg_ok "Xray reiniciado." && tc_pause ;;
-                5|05) journalctl -u xray -n 30 --no-pager && tc_pause ;;
-                6|06) tc_xray_uninstall ;;
+                4|04) tc_xray_add_port ;;
+                5|05) tc_xray_change_path ;;
+                6|06)
+                    if command -v nano >/dev/null 2>&1; then
+                        nano "$TC_XRAY_CONF"
+                    else
+                        vi "$TC_XRAY_CONF"
+                    fi
+                    systemctl restart xray >/dev/null 2>&1
+                    tc_msg_ok "Configuración actualizada y Xray reiniciado."
+                    tc_pause
+                    ;;
+                7|07) systemctl restart xray >/dev/null 2>&1 && tc_msg_ok "Xray reiniciado." && tc_pause ;;
+                8|08) journalctl -u xray -n 30 --no-pager && tc_pause ;;
+                9|09) tc_xray_uninstall ;;
                 0|00) break ;;
                 *) tc_msg_err "Opción no válida."; sleep 1 ;;
             esac
         fi
     done
 }
-
