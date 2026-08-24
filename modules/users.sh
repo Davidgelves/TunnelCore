@@ -88,11 +88,11 @@ tc_user_create() {
 
     # 4. Límite de conexiones
     while true; do
-        printf '%bLímite de conexiones simultáneas [1-99] (Enter = 1):%b ' "$TC_DARK_GREEN" "$TC_NC"
+        printf '%bLímite de conexiones simultáneas [1-999] (Enter = 1):%b ' "$TC_DARK_GREEN" "$TC_NC"
         read -r limit
         [[ -z "$limit" ]] && limit="1"
-        if [[ ! "$limit" =~ ^[0-9]+$ ]] || (( limit < 1 || limit > 99 )); then
-            tc_msg_err "Ingrese un límite válido (1 a 99)."
+        if [[ ! "$limit" =~ ^[0-9]+$ ]] || (( limit < 1 || limit > 999 )); then
+            tc_msg_err "Ingrese un límite válido (1 a 999)."
             continue
         fi
         break
@@ -324,10 +324,10 @@ tc_user_change_limit() {
 
     local new_limit
     while true; do
-        printf '%bNuevo límite de conexiones [1-99]:%b ' "$TC_DARK_GREEN" "$TC_NC"
+        printf '%bNuevo límite de conexiones [1-999]:%b ' "$TC_DARK_GREEN" "$TC_NC"
         read -r new_limit
-        if [[ ! "$new_limit" =~ ^[0-9]+$ ]] || (( new_limit < 1 || new_limit > 99 )); then
-            tc_msg_err "Ingrese un límite válido."
+        if [[ ! "$new_limit" =~ ^[0-9]+$ ]] || (( new_limit < 1 || new_limit > 999 )); then
+            tc_msg_err "Ingrese un límite válido (1 a 999)."
             continue
         fi
         break

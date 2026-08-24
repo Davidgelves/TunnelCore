@@ -218,12 +218,34 @@ tc_proxy_menu() {
                     tc_pause
                     ;;
                 4|04)
-                    printf '%bNuevo estado HTTP (200 / 101 / 204) [Enter = %s]:%b ' "$TC_DARK_GREEN" "${PROXY_STATUS:-200}" "$TC_NC"
-                    read -r new_st
-                    [[ -z "$new_st" ]] && new_st="${PROXY_STATUS:-200}"
-                    tc_proxy_start "${PROXY_PORT:-80}" "$new_st" "${PROXY_TARGET:-127.0.0.1:22}" "${PROXY_BANNER:-}"
-                    tc_msg_ok "Estado HTTP actualizado a $new_st."
-                    tc_pause
+                    tc_clear
+                    tc_title "SELECCIONAR ESTADO HTTP"
+                    tc_opt "1" "200 OK (HTTP Custom / Injector / Payload estándar)"
+                    tc_opt "2" "101 Switching Protocols (WebSocket SSH)"
+                    tc_opt "3" "204 No Content"
+                    tc_opt "4" "Código personalizado (ej: 301, 302, etc.)"
+                    tc_line
+                    tc_opt "0" "$(_t 'cancel')"
+                    tc_line
+                    tc_prompt
+                    read -r st_opt
+                    local new_st=""
+                    case "$st_opt" in
+                        1) new_st="200" ;;
+                        2) new_st="101" ;;
+                        3) new_st="204" ;;
+                        4)
+                            printf '%bIngrese código HTTP (ej: 302):%b ' "$TC_DARK_GREEN" "$TC_NC"
+                            read -r cust_st
+                            [[ -n "$cust_st" ]] && new_st="$cust_st"
+                            ;;
+                        0|*) continue ;;
+                    esac
+                    if [[ -n "$new_st" ]]; then
+                        tc_proxy_start "${PROXY_PORT:-80}" "$new_st" "${PROXY_TARGET:-127.0.0.1:22}" "${PROXY_BANNER:-}"
+                        tc_msg_ok "Estado HTTP actualizado a $new_st."
+                        tc_pause
+                    fi
                     ;;
                 5|05)
                     printf '%bMinibanner actual:%b %s\n' "$TC_DARK_GREEN" "$TC_NC" "${PROXY_BANNER:-Ninguno}"
