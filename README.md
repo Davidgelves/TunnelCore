@@ -2,18 +2,18 @@
 
 Gestión de VPS / SSH / Tunneling — Modular, limpio, sin errores heredados.
 
-## Instalación
+## Instalación Rápida
+
+Ejecute en su VPS como usuario `root`:
 
 ```bash
-# Clonar el repositorio
-git clone https://github.com/Davidgelves/TunnelCore.git /opt/tunnelcore
+wget -qO tunnelcore "https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh?$(date +%s)" && chmod +x tunnelcore && bash tunnelcore
+```
 
-# Enlazar el comando
-ln -sf /opt/tunnelcore/tunnelcore /usr/local/bin/tunnelcore
-chmod +x /opt/tunnelcore/tunnelcore
+O también con `curl`:
 
-# Ejecutar
-tunnelcore
+```bash
+bash <(curl -fsSL "https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh?$(date +%s)")
 ```
 
 ## Estructura
