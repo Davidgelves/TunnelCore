@@ -1,32 +1,29 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 #  TunnelCore — modules/protocols/proxy.sh
-#  Gestión de Proxy HTTP / SOCKS (Payload / WebSocket / Auto)
-#  Soporta Proxy 1 (Principal) y Proxy 2 (Secundario) simultáneos
+#  Gestión Directa y Unificada de Proxy HTTP / SOCKS (Modo AUTO)
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
 
 TC_PROXY_DIR="/etc/tunnelcore/proxy"
 TC_PROXY_PY="${TC_PROXY_DIR}/proxy_server.py"
+TC_PROXY_CONF="${TC_PROXY_DIR}/proxy.conf"
+TC_PROXY_SERVICE="/etc/systemd/system/tunnelcore-proxy.service"
+TC_PROXY2_SERVICE="/etc/systemd/system/tunnelcore-proxy2.service"
 
-TC_P1_CONF="${TC_PROXY_DIR}/proxy1.conf"
-TC_P1_SERVICE="/etc/systemd/system/tunnelcore-proxy.service"
+tc_proxy_is_running() {
+    systemctl is-active --quiet tunnelcore-proxy 2>/dev/null
+}
 
-TC_P2_CONF="${TC_PROXY_DIR}/proxy2.conf"
-TC_P2_SERVICE="/etc/systemd/system/tunnelcore-proxy2.service"
-
-tc_p1_is_running() { systemctl is-active --quiet tunnelcore-proxy 2>/dev/null; }
-tc_p2_is_running() { systemctl is-active --quiet tunnelcore-proxy2 2>/dev/null; }
+tc_proxy2_is_running() {
+    systemctl is-active --quiet tunnelcore-proxy2 2>/dev/null
+}
 
 tc_proxy_status_mark() {
-    local running=0
-    tc_p1_is_running && (( running++ ))
-    tc_p2_is_running && (( running++ ))
-
-    if (( running > 0 )); then
-        printf '%b[%s ACTIVO(S)]%b' "$TC_GREEN" "$running" "$TC_NC"
-    elif [[ -f "$TC_P1_CONF" || -f "$TC_P2_CONF" ]]; then
+    if tc_proxy_is_running; then
+        printf '%b[ON]%b' "$TC_GREEN" "$TC_NC"
+    elif [[ -f "$TC_PROXY_CONF" ]]; then
         printf '%b[OFF]%b' "$TC_RED" "$TC_NC"
     else
         printf '%b[NO INSTALADO]%b' "$TC_YELLOW" "$TC_NC"
@@ -34,34 +31,35 @@ tc_proxy_status_mark() {
 }
 
 tc_proxy_load_conf() {
-    local id="${1:-1}"
-    local conf_file="${TC_PROXY_DIR}/proxy${id}.conf"
-    P_PORT="80"
-    P_STATUS="AUTO"
-    P_TARGET="127.0.0.1:22"
-    P_BANNER=""
+    PROXY_PORT="80"
+    PROXY_STATUS="AUTO"
+    PROXY_TARGET="127.0.0.1:22"
+    PROXY_BANNER=""
+    PROXY_PORT2=""
 
-    if [[ -f "$conf_file" ]]; then
+    # Migrar configuraciones anteriores si existen
+    if [[ -f "${TC_PROXY_DIR}/proxy1.conf" && ! -f "$TC_PROXY_CONF" ]]; then
+        cp -f "${TC_PROXY_DIR}/proxy1.conf" "$TC_PROXY_CONF"
+    fi
+
+    if [[ -f "$TC_PROXY_CONF" ]]; then
         # shellcheck disable=SC1090
-        . "$conf_file"
-    elif [[ "$id" == "2" ]]; then
-        P_PORT="8080"
-        P_STATUS="AUTO"
+        . "$TC_PROXY_CONF"
     fi
 }
 
 tc_proxy_save_conf() {
-    local id="${1:-1}"
-    local conf_file="${TC_PROXY_DIR}/proxy${id}.conf"
     mkdir -p "$TC_PROXY_DIR"
-    cat > "$conf_file" <<EOF
-P_PORT="${P_PORT:-80}"
-P_STATUS="${P_STATUS:-AUTO}"
-P_TARGET="${P_TARGET:-127.0.0.1:22}"
-P_BANNER="${P_BANNER:-}"
+    cat > "$TC_PROXY_CONF" <<EOF
+PROXY_PORT="${PROXY_PORT:-80}"
+PROXY_STATUS="${PROXY_STATUS:-AUTO}"
+PROXY_TARGET="${PROXY_TARGET:-127.0.0.1:22}"
+PROXY_BANNER="${PROXY_BANNER:-}"
+PROXY_PORT2="${PROXY_PORT2:-}"
 EOF
 }
 
+# ── Selector de Redirección Estilo NoxuraSSH ───────────────────
 TC_SELECTED_TARGET="127.0.0.1:22"
 
 tc_proxy_ask_target() {
@@ -110,11 +108,8 @@ tc_proxy_ask_target() {
     done
 }
 
-tc_proxy_start_instance() {
-    local id="${1:-1}" port="$2" status_code="${3:-AUTO}" target="${4:-127.0.0.1:22}" banner="${5:-}"
-    local svc_file="/etc/systemd/system/tunnelcore-proxy${id}.service"
-    [[ "$id" == "1" ]] && svc_file="/etc/systemd/system/tunnelcore-proxy.service"
-
+tc_proxy_start() {
+    local port="$1" status_code="${2:-AUTO}" target="${3:-127.0.0.1:22}" banner="${4:-}" port2="${5:-}"
     mkdir -p "$TC_PROXY_DIR"
     tc_require_cmd "python3" "python3"
 
@@ -125,15 +120,17 @@ tc_proxy_start_instance() {
     fi
     chmod +x "$TC_PROXY_PY"
 
-    P_PORT="$port"
-    P_STATUS="$status_code"
-    P_TARGET="$target"
-    P_BANNER="$banner"
-    tc_proxy_save_conf "$id"
+    PROXY_PORT="$port"
+    PROXY_STATUS="$status_code"
+    PROXY_TARGET="$target"
+    PROXY_BANNER="$banner"
+    PROXY_PORT2="$port2"
+    tc_proxy_save_conf
 
-    cat > "$svc_file" <<EOF
+    # Servicio Principal
+    cat > "$TC_PROXY_SERVICE" <<EOF
 [Unit]
-Description=TunnelCore HTTP/SOCKS Proxy Instance ${id}
+Description=TunnelCore HTTP/SOCKS Proxy
 After=network.target
 
 [Service]
@@ -148,40 +145,48 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload >/dev/null 2>&1
-    local svc_name="tunnelcore-proxy"
-    [[ "$id" == "2" ]] && svc_name="tunnelcore-proxy2"
+    systemctl enable tunnelcore-proxy >/dev/null 2>&1
+    systemctl restart tunnelcore-proxy >/dev/null 2>&1
 
-    systemctl enable "$svc_name" >/dev/null 2>&1
-    systemctl restart "$svc_name" >/dev/null 2>&1
+    # Servicio Secundario (Opcional si se configuró puerto 2)
+    if [[ -n "$port2" && "$port2" != "0" ]]; then
+        cat > "$TC_PROXY2_SERVICE" <<EOF
+[Unit]
+Description=TunnelCore HTTP/SOCKS Proxy Secondary Port
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 ${TC_PROXY_PY} ${port2} ${status_code} ${target} "${banner}"
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload >/dev/null 2>&1
+        systemctl enable tunnelcore-proxy2 >/dev/null 2>&1
+        systemctl restart tunnelcore-proxy2 >/dev/null 2>&1
+    else
+        systemctl stop tunnelcore-proxy2 >/dev/null 2>&1 || true
+        systemctl disable tunnelcore-proxy2 >/dev/null 2>&1 || true
+    fi
 }
 
-tc_proxy_stop_instance() {
-    local id="${1:-1}"
-    local svc_name="tunnelcore-proxy"
-    [[ "$id" == "2" ]] && svc_name="tunnelcore-proxy2"
-    systemctl stop "$svc_name" >/dev/null 2>&1 || true
-    systemctl disable "$svc_name" >/dev/null 2>&1 || true
+tc_proxy_stop() {
+    systemctl stop tunnelcore-proxy tunnelcore-proxy2 >/dev/null 2>&1 || true
+    systemctl disable tunnelcore-proxy tunnelcore-proxy2 >/dev/null 2>&1 || true
 }
 
-tc_proxy_manage_instance() {
-    local id="${1:-1}"
-    local title="PROXY HTTP 1 (PRINCIPAL)"
-    [[ "$id" == "2" ]] && title="PROXY HTTP 2 (SECUNDARIO)"
-
+tc_proxy_menu() {
     while true; do
         tc_clear
-        tc_proxy_load_conf "$id"
-        local is_run=0
-        [[ "$id" == "1" ]] && tc_p1_is_running && is_run=1
-        [[ "$id" == "2" ]] && tc_p2_is_running && is_run=1
+        tc_proxy_load_conf
+        tc_title "PROXY HTTP / SOCKS $(tc_proxy_status_mark)"
 
-        local st_mark
-        (( is_run == 1 )) && st_mark="${TC_GREEN}[ON]${TC_NC}" || st_mark="${TC_RED}[OFF]${TC_NC}"
-
-        tc_title "${title} ${st_mark}"
-
-        if (( is_run == 0 )); then
-            tc_opt "1" "ACTIVAR ${title}"
+        if ! tc_proxy_is_running; then
+            tc_opt "1" "ACTIVAR PROXY HTTP / SOCKS"
             tc_line
             tc_opt "0" "$(_t 'back')"
             tc_line
@@ -189,12 +194,9 @@ tc_proxy_manage_instance() {
             read -r opt
             case "$opt" in
                 1|01)
-                    local def_p="80"
-                    [[ "$id" == "2" ]] && def_p="8080"
-
-                    printf '%bPuerto de escucha del Proxy [Enter = %s]:%b ' "$TC_DARK_GREEN" "$def_p" "$TC_NC"
+                    printf '%bPuerto de escucha principal [Enter = 80]:%b ' "$TC_DARK_GREEN" "$TC_NC"
                     read -r port
-                    [[ -z "$port" ]] && port="$def_p"
+                    [[ -z "$port" ]] && port="80"
                     if ! tc_valid_port "$port"; then
                         tc_msg_err "Puerto no válido."
                         tc_pause
@@ -228,29 +230,37 @@ tc_proxy_manage_instance() {
                         *) st="AUTO" ;;
                     esac
 
-                    printf '\n%bMinibanner / Respuesta de Encabezado (Opcional - Enter para omitir):%b ' "$TC_DARK_GREEN" "$TC_NC"
+                    printf '\n%bMinibanner / Encabezado personalizado (Enter para omitir):%b ' "$TC_DARK_GREEN" "$TC_NC"
                     read -r banner
 
-                    tc_proxy_start_instance "$id" "$port" "$st" "$TC_SELECTED_TARGET" "$banner"
-                    tc_msg_ok "${title} activado en puerto $port (Status $st) redirigiendo a $TC_SELECTED_TARGET."
+                    tc_proxy_start "$port" "$st" "$TC_SELECTED_TARGET" "$banner" ""
+                    if tc_proxy_is_running; then
+                        tc_msg_ok "Proxy HTTP/SOCKS activado en puerto $port (Status $st) redirigiendo a $TC_SELECTED_TARGET."
+                    else
+                        tc_msg_err "Error al iniciar Proxy HTTP/SOCKS."
+                    fi
                     tc_pause
                     ;;
                 0|00) break ;;
                 *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
             esac
         else
-            printf '%bPUERTO:%b %b%s%b  %bSTATUS:%b %b%s%b  %bDESTINO:%b %b%s%b\n' \
-                "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${P_PORT:-80}" "$TC_NC" \
-                "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${P_STATUS:-AUTO}" "$TC_NC" \
-                "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${P_TARGET:-127.0.0.1:22}" "$TC_NC"
+            local extra_port_str=""
+            [[ -n "${PROXY_PORT2:-}" ]] && extra_port_str=", ${PROXY_PORT2}"
+
+            printf '%bPUERTOS:%b %b%s%s%b  %bSTATUS:%b %b%s%b  %bDESTINO:%b %b%s%b\n' \
+                "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${PROXY_PORT:-80}" "$extra_port_str" "$TC_NC" \
+                "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${PROXY_STATUS:-AUTO}" "$TC_NC" \
+                "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${PROXY_TARGET:-127.0.0.1:22}" "$TC_NC"
             tc_line
-            tc_opt "1" "DESACTIVAR ESTE PROXY"
+            tc_opt "1" "DESACTIVAR PROXY"
             tc_opt "2" "REDIRIGIR DESTINO (SSH / DROPBEAR)"
-            tc_opt "3" "CAMBIAR PUERTO DE ESCUCHA"
+            tc_opt "3" "CAMBIAR PUERTO PRINCIPAL"
             tc_opt "4" "CAMBIAR ESTADO HTTP (AUTO, 200, 101, etc.)"
-            tc_opt "5" "CAMBIAR MINIBANNER"
-            tc_opt "6" "REINICIAR SERVICIO"
-            tc_opt "7" "VER LOGS EN VIVO"
+            tc_opt "5" "AGREGAR / QUITAR PUERTO SECUNDARIO"
+            tc_opt "6" "CAMBIAR MINIBANNER"
+            tc_opt "7" "REINICIAR SERVICIO"
+            tc_opt "8" "VER LOGS EN VIVO"
             tc_line
             tc_opt "0" "$(_t 'back')"
             tc_line
@@ -258,22 +268,22 @@ tc_proxy_manage_instance() {
             read -r opt
             case "$opt" in
                 1|01)
-                    tc_proxy_stop_instance "$id"
-                    tc_msg_ok "${title} detenido."
+                    tc_proxy_stop
+                    tc_msg_ok "Proxy detenido."
                     tc_pause
                     ;;
                 2|02)
-                    if tc_proxy_ask_target "${P_PORT:-80}"; then
-                        tc_proxy_start_instance "$id" "${P_PORT:-80}" "${P_STATUS:-AUTO}" "$TC_SELECTED_TARGET" "${P_BANNER:-}"
+                    if tc_proxy_ask_target "${PROXY_PORT:-80}"; then
+                        tc_proxy_start "${PROXY_PORT:-80}" "${PROXY_STATUS:-AUTO}" "$TC_SELECTED_TARGET" "${PROXY_BANNER:-}" "${PROXY_PORT2:-}"
                         tc_msg_ok "Destino actualizado a $TC_SELECTED_TARGET."
                         tc_pause
                     fi
                     ;;
                 3|03)
-                    printf '%bNuevo puerto de escucha [Enter = %s]:%b ' "$TC_DARK_GREEN" "${P_PORT:-80}" "$TC_NC"
+                    printf '%bNuevo puerto principal [Enter = %s]:%b ' "$TC_DARK_GREEN" "${PROXY_PORT:-80}" "$TC_NC"
                     read -r new_p
                     if [[ -n "$new_p" ]] && tc_valid_port "$new_p"; then
-                        tc_proxy_start_instance "$id" "$new_p" "${P_STATUS:-AUTO}" "${P_TARGET:-127.0.0.1:22}" "${P_BANNER:-}"
+                        tc_proxy_start "$new_p" "${PROXY_STATUS:-AUTO}" "${PROXY_TARGET:-127.0.0.1:22}" "${PROXY_BANNER:-}" "${PROXY_PORT2:-}"
                         tc_msg_ok "Puerto actualizado a $new_p."
                     else
                         tc_msg_err "Puerto no válido."
@@ -307,62 +317,48 @@ tc_proxy_manage_instance() {
                         0|*) continue ;;
                     esac
                     if [[ -n "$new_st" ]]; then
-                        tc_proxy_start_instance "$id" "${P_PORT:-80}" "$new_st" "${P_TARGET:-127.0.0.1:22}" "${P_BANNER:-}"
+                        tc_proxy_start "${PROXY_PORT:-80}" "$new_st" "${PROXY_TARGET:-127.0.0.1:22}" "${PROXY_BANNER:-}" "${PROXY_PORT2:-}"
                         tc_msg_ok "Estado HTTP actualizado a $new_st."
                         tc_pause
                     fi
                     ;;
                 5|05)
-                    printf '%bMinibanner actual:%b %s\n' "$TC_DARK_GREEN" "$TC_NC" "${P_BANNER:-Ninguno}"
-                    printf '%bIngrese nuevo minibanner (Enter para borrar):%b ' "$TC_DARK_GREEN" "$TC_NC"
-                    read -r new_ban
-                    tc_proxy_start_instance "$id" "${P_PORT:-80}" "${P_STATUS:-AUTO}" "${P_TARGET:-127.0.0.1:22}" "$new_ban"
-                    tc_msg_ok "Minibanner actualizado."
+                    printf '%bPuerto secundario actual:%b %s\n' "$TC_DARK_GREEN" "$TC_NC" "${PROXY_PORT2:-Ninguno}"
+                    printf '%bIngrese puerto secundario (o Enter para quitar):%b ' "$TC_DARK_GREEN" "$TC_NC"
+                    read -r new_p2
+                    if [[ -z "$new_p2" ]]; then
+                        tc_proxy_start "${PROXY_PORT:-80}" "${PROXY_STATUS:-AUTO}" "${PROXY_TARGET:-127.0.0.1:22}" "${PROXY_BANNER:-}" ""
+                        tc_msg_ok "Puerto secundario removido."
+                    elif tc_valid_port "$new_p2"; then
+                        tc_proxy_start "${PROXY_PORT:-80}" "${PROXY_STATUS:-AUTO}" "${PROXY_TARGET:-127.0.0.1:22}" "${PROXY_BANNER:-}" "$new_p2"
+                        tc_msg_ok "Puerto secundario $new_p2 agregado y activo."
+                    else
+                        tc_msg_err "Puerto no válido."
+                    fi
                     tc_pause
                     ;;
                 6|06)
-                    local svc_name="tunnelcore-proxy"
-                    [[ "$id" == "2" ]] && svc_name="tunnelcore-proxy2"
-                    systemctl restart "$svc_name" >/dev/null 2>&1
-                    tc_msg_ok "Servicio reiniciado."
+                    printf '%bMinibanner actual:%b %s\n' "$TC_DARK_GREEN" "$TC_NC" "${PROXY_BANNER:-Ninguno}"
+                    printf '%bIngrese nuevo minibanner (Enter para borrar):%b ' "$TC_DARK_GREEN" "$TC_NC"
+                    read -r new_ban
+                    tc_proxy_start "${PROXY_PORT:-80}" "${PROXY_STATUS:-AUTO}" "${PROXY_TARGET:-127.0.0.1:22}" "$new_ban" "${PROXY_PORT2:-}"
+                    tc_msg_ok "Minibanner actualizado."
                     tc_pause
                     ;;
                 7|07)
+                    systemctl restart tunnelcore-proxy >/dev/null 2>&1
+                    [[ -n "${PROXY_PORT2:-}" ]] && systemctl restart tunnelcore-proxy2 >/dev/null 2>&1 || true
+                    tc_msg_ok "Proxy reiniciado."
+                    tc_pause
+                    ;;
+                8|08)
                     tc_clear
-                    local svc_name="tunnelcore-proxy"
-                    [[ "$id" == "2" ]] && svc_name="tunnelcore-proxy2"
-                    tc_title "LOGS PROXY ${id} (Ctrl+C para salir)"
-                    journalctl -u "$svc_name" -f --no-pager
+                    tc_title "LOGS PROXY (Ctrl+C para salir)"
+                    journalctl -u tunnelcore-proxy -f --no-pager
                     ;;
                 0|00) break ;;
                 *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
             esac
         fi
-    done
-}
-
-tc_proxy_menu() {
-    while true; do
-        tc_clear
-        local p1_st="${TC_RED}[OFF]${TC_NC}" p2_st="${TC_RED}[OFF]${TC_NC}"
-        tc_p1_is_running && p1_st="${TC_GREEN}[ON]${TC_NC}"
-        tc_p2_is_running && p2_st="${TC_GREEN}[ON]${TC_NC}"
-
-        tc_title "PROXY HTTP / SOCKS $(tc_proxy_status_mark)"
-
-        tc_opt "1" "GESTIONAR PROXY 1 (PRINCIPAL)" "  $p1_st"
-        tc_opt "2" "GESTIONAR PROXY 2 (SECUNDARIO)" "  $p2_st"
-        tc_line
-        tc_opt "0" "$(_t 'back')"
-        tc_line
-        tc_prompt
-        read -r main_p_opt
-
-        case "$main_p_opt" in
-            1|01) tc_proxy_manage_instance "1" ;;
-            2|02) tc_proxy_manage_instance "2" ;;
-            0|00) break ;;
-            *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
-        esac
     done
 }
