@@ -147,6 +147,10 @@ msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[1;31m'
 
 # ── Instalador Directo de Respaldo de Núcleo ──────────────────
 instalar_nucleo_directo() {
+    local sel_proto="$1"
+    local sel_port="$2"
+    local sel_path="$3"
+
     local arch asset xray_url
     arch="$(uname -m)"
     case "$arch" in
@@ -176,12 +180,19 @@ instalar_nucleo_directo() {
     local init_user="admin"
     local init_exp="$(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || echo '2030-01-01')"
 
-    # Certificados SSL para TLS
+    # Certificados SSL
     mkdir -p /etc/tunnelcore/v2ray
     if [[ ! -f /etc/tunnelcore/v2ray/server.crt || ! -f /etc/tunnelcore/v2ray/server.key ]]; then
         openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
             -keyout /etc/tunnelcore/v2ray/server.key -out /etc/tunnelcore/v2ray/server.crt -subj "/CN=tunnelcore-v2ray" >/dev/null 2>&1 || true
         chmod 600 /etc/tunnelcore/v2ray/server.key /etc/tunnelcore/v2ray/server.crt 2>/dev/null || true
+    fi
+
+    local client_block
+    if [[ "$sel_proto" == "vless" ]]; then
+        client_block='[{"id": "'"${init_uuid}"'", "level": 0}]'
+    else
+        client_block='[{"id": "'"${init_uuid}"'", "alterId": 0}]'
     fi
 
     cat > /usr/local/etc/xray/config.json <<EOF
@@ -191,45 +202,19 @@ instalar_nucleo_directo() {
   },
   "inbounds": [
     {
-      "tag": "vmess-ws-http",
-      "port": 8443,
+      "tag": "${sel_proto}-ws",
+      "port": ${sel_port},
       "listen": "0.0.0.0",
-      "protocol": "vmess",
+      "protocol": "${sel_proto}",
       "settings": {
-        "clients": [
-          {
-            "id": "${init_uuid}",
-            "alterId": 0
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": {
-          "path": "/tunnelcore"
-        }
-      }
-    },
-    {
-      "tag": "vless-ws-http",
-      "port": 8080,
-      "listen": "0.0.0.0",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "${init_uuid}",
-            "level": 0
-          }
-        ],
+        "clients": ${client_block},
         "decryption": "none"
       },
       "streamSettings": {
         "network": "ws",
         "security": "none",
         "wsSettings": {
-          "path": "/tunnelcore"
+          "path": "${sel_path}"
         }
       }
     }
@@ -289,7 +274,7 @@ EOF
     fi
 }
 
-# ── Instalador V2Ray ──────────────────────────────────────────
+# ── Instalador V2Ray Interactivo ──────────────────────────────
 intallv2ray() {
     tc_clear
     v2ray_title "INSTALADOR V2RAY"
@@ -298,34 +283,50 @@ intallv2ray() {
         apt-get install -y curl wget unzip ca-certificates jq uuid-runtime openssl python3 python3-pip python3-setuptools >/dev/null 2>&1 || true
     fi
 
-    # Corregir pip si es Python 3.8
-    local py_ver
-    py_ver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "3.8")"
-    if [[ "$py_ver" == "3.8" ]] && ! command -v pip >/dev/null 2>&1 && ! command -v pip3 >/dev/null 2>&1; then
-        curl -fsSL https://bootstrap.pypa.io/pip/3.8/get-pip.py | python3 >/dev/null 2>&1 || true
-    fi
+    # 1. Elegir Protocolo
+    echo ""
+    v2ray_title "ELIJA EL PROTOCOLO V2RAY"
+    v2ray_opt "1" "VMess (WebSocket / Universal)"
+    v2ray_opt "2" "VLESS (WebSocket / Ligero)"
+    v2ray_line
+    local proto_opt proto_name="VMess" proto_tag="vmess"
+    while true; do
+        printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR" && read -r proto_opt
+        case "$proto_opt" in
+            1) proto_name="VMess"; proto_tag="vmess"; break ;;
+            2) proto_name="VLESS"; proto_tag="vless"; break ;;
+            *) echo -e "\033[1;31mOpción no válida!\033[0m" ;;
+        esac
+    done
 
-    echo -e "\033[1;32m[✓] Descargando e iniciando instalador Multi-V2Ray...\033[0m"
-    local installed=0
-    if bash <(curl -sL https://multi.netlify.app/v2ray.sh) -k 2>/dev/null; then
-        installed=1
-    elif bash <(curl -sL https://raw.githubusercontent.com/Jrohy/multi-v2ray/master/v2ray.sh) 2>/dev/null; then
-        installed=1
-    fi
+    # 2. Indicar Puerto
+    echo ""
+    linea_v2ray
+    v2ray_title "INDIQUE EL PUERTO V2RAY"
+    local port
+    while true; do
+        printf '%bINDIQUE EL PUERTO V2RAY [ej: 8443, 8080, 443, 80]:%b ' "$SSHPLUS_DARK_GREEN" "$SCOLOR"
+        read -r port
+        [[ -z "$port" ]] && port="8443"
+        if ! v2ray_valid_port "$port"; then
+            echo -e "\033[1;31mPuerto no válido. Use un número entre 1 y 65535.\033[0m"
+            continue
+        fi
+        break
+    done
 
-    # Si no dejó comando v2ray o falló config.json, configurar núcleo directamente
-    if ! command -v v2ray >/dev/null 2>&1 || [[ -z "$(v2ray_config_file)" ]]; then
-        echo -e "\033[1;33mConfigurando núcleo V2Ray oficial de alta velocidad...\033[0m"
-        instalar_nucleo_directo
-    else
-        v2ray_title "ELIJA EL PROTOCOLO V2RAY"
-        v2ray stream
-        tc_clear
-        linea_v2ray
-        v2ray_title "INDIQUE EL PUERTO V2RAY [8443] o [443]"
-        v2ray port
-        tc_clear
-    fi
+    # 3. Indicar Path
+    echo ""
+    linea_v2ray
+    printf '%bPATH WEBSOCKET [Enter = /tunnelcore]:%b ' "$SSHPLUS_DARK_GREEN" "$SCOLOR"
+    local path
+    read -r path
+    [[ -z "$path" ]] && path="/tunnelcore"
+    [[ "$path" != /* ]] && path="/$path"
+
+    echo ""
+    echo -e "\033[1;32m[✓] Configurando V2Ray ($proto_name en puerto $port con path $path)...\033[0m"
+    instalar_nucleo_directo "$proto_tag" "$port" "$path"
 
     mkdir -p /etc/SSHPlus /etc/tunnelcore/v2ray
     local USRdatabase="/etc/SSHPlus/RegV2ray"
@@ -339,6 +340,7 @@ intallv2ray() {
         v2ray_restart_service
     fi
 
+    tc_clear
     linea_v2ray
     v2ray_title "INFORMACIÓN DE CUENTA"
     v2ray_show_info
