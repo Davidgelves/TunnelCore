@@ -75,6 +75,36 @@ v2ray_require_jq() {
     fi
     command -v jq >/dev/null 2>&1
 }
+v2ray_public_ip() {
+    if declare -f tc_public_ip >/dev/null 2>&1; then
+    tc_public_ip
+    return 0
+    fi
+    local ip=""
+    for url in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com"; do
+    ip="$(curl -4fsS --max-time 5 "$url" 2>/dev/null)" && break
+    done
+    [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    echo "${ip:-N/A}"
+}
+v2ray_urlencode_path() {
+    local value="$1"
+    value="${value//'%'/%25}"
+    value="${value//' '/%20}"
+    value="${value//'#'/%23}"
+    value="${value//'?'/%3F}"
+    value="${value//'&'/%26}"
+    value="${value//'='/%3D}"
+    value="${value//'/'/%2F}"
+    echo "$value"
+}
+tc_xray_status_mark() {
+    if v2ray_service_running; then
+    printf '\033[1;32mo\033[0m'
+    else
+    printf '\033[1;31mx\033[0m'
+    fi
+}
 v2ray_show_info() {
     local cfg
     if command -v v2ray >/dev/null 2>&1; then
@@ -427,7 +457,8 @@ v2ray_ensure_legacy_config "$config_v2ray"
         echo -e "\033[1;31mjq no esta instalado; no se puede modificar el JSON de forma segura.\033[0m"
         echo -e "\033[1;37mInstale jq y vuelva a intentar crear el usuario V2Ray.\033[0m"
         pausa_v2ray
-
+        fun_v2raymanager
+        return
     fi
 
     # 1. Nombre de usuario
@@ -692,7 +723,7 @@ EOF
         local vmess_b64="$(printf '%s' "$vmess_json" | base64 -w 0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
         uri="vmess://${vmess_b64}"
     else
-        local enc_path="$(printf '%s' "$path_ws" | sed 's/\//%2F/g')"
+        local enc_path="$(v2ray_urlencode_path "$path_ws")"
         if [[ "$tls_mode" == "tls" ]]; then
             uri="vless://${UUID}@${add_host}:${ext_port}?type=ws&security=tls&sni=${sni_host}&host=${host_header}&path=${enc_path}#${nick}"
         else
@@ -1177,6 +1208,7 @@ EOF
     [[ -z "$path" ]] && path="/xhttp"
     [[ "$path" != /* ]] && path="/$path"
     echo -ne "${SSHPlus_DARK_GREEN}DOMINIO/SNI [opcional]:${SCOLOR} " && read domain
+    [[ -n "$domain" ]] && mkdir -p /etc/SSHPlus/v2ray && echo "$domain" > /etc/SSHPlus/v2ray/domain
     echo -ne "${SSHPlus_DARK_GREEN}USUARIO [Enter = xhttp]:${SCOLOR} " && read user
     [[ -z "$user" ]] && user="xhttp"
     uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
@@ -1198,10 +1230,11 @@ EOF
     rm -rf xray-install xray.zip
     mkdir -p xray-install
     if command -v curl >/dev/null 2>&1; then
-    curl -L -o xray.zip "$xray_url"
+    curl -fL -o xray.zip "$xray_url"
     else
     wget -O xray.zip "$xray_url"
     fi
+    [[ -s xray.zip ]] || { echo -e "\033[1;31mNo se pudo descargar Xray.\033[0m"; pausa_v2ray; menu_xray_xhttp; return; }
     unzip -o xray.zip -d xray-install >/dev/null 2>&1 || { echo -e "\033[1;31mNo se pudo descomprimir Xray.\033[0m"; pausa_v2ray; menu_xray_xhttp; return; }
     install -m 755 xray-install/xray /usr/local/bin/xray || { echo -e "\033[1;31mNo se pudo instalar /usr/local/bin/xray.\033[0m"; pausa_v2ray; menu_xray_xhttp; return; }
 
@@ -1306,7 +1339,7 @@ EOF
     echo -e "${SSHPlus_DARK_GREEN}UUID      :${SCOLOR} \033[1;37m$uuid\033[0m"
     echo -e "${SSHPlus_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;33mLINK VLESS (Directo / Sin TLS):\033[0m"
-    echo -e "\033[1;37mvless://${uuid}@${host}:${port}?security=none&type=xhttp&path=${path}#TunnelCore-XHTTP\033[0m"
+    echo -e "\033[1;37mvless://${uuid}@${host}:${port}?security=none&type=xhttp&path=$(v2ray_urlencode_path "$path")#TunnelCore-XHTTP\033[0m"
     echo -e "${SSHPlus_CYAN}============================================================${SCOLOR}"
     pausa_v2ray
     menu_xray_xhttp
@@ -1373,6 +1406,12 @@ EOF
     echo -e "${SSHPlus_DARK_GREEN}UUID ACTUAL:${SCOLOR} \033[1;37m$cur_uuid\033[0m"
     echo -ne "${SSHPlus_DARK_GREEN}NUEVO UUID [Enter = generar automatico]:${SCOLOR} " && read new_uuid
     [[ -z "$new_uuid" ]] && new_uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+    if ! v2ray_valid_uuid "$new_uuid"; then
+    echo -e "\033[1;31mUUID no valido.\033[0m"
+    pausa_v2ray
+    menu_xray_xhttp
+    return
+    fi
     local tmp="${cfg}.tmp"
     jq --arg u "$new_uuid" '.inbounds[0].settings.clients[0].id = $u' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || {
       rm -f "$tmp"
