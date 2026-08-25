@@ -591,6 +591,10 @@ v2ray_ensure_legacy_config "$config_v2ray"
     }
     addusr () {
     clear
+    if [[ -s /etc/SSHPlus/v2ray/configs.db ]]; then
+    v2ray_add_user_port_config
+    return
+    fi
     v2ray_title "ANADIR USUARIO | UUID V2RAY"
     local cfg tmp
     cfg="$(v2ray_config_file)"
@@ -2321,6 +2325,141 @@ EOF
     fun_v2raymanager
     }
 
+    v2ray_add_user_port_config() {
+    local cfg nick uuid days valid exp tmp proto network link_tls domain path ext_port add_host host_header sni enc_path uri vmess_json vmess_b64
+    clear
+    v2ray_select_config || { menu_usuarios_v2ray; return; }
+    cfg="/usr/local/etc/xray/config-${V2SEL_PORT}.json"
+    if [[ ! -s "$cfg" ]]; then
+    echo -e "\033[1;31mNo existe la configuracion del puerto ${V2SEL_PORT}.\033[0m"
+    pausa_v2ray
+    menu_usuarios_v2ray
+    return
+    fi
+    proto="$(jq -r '.inbounds[0].protocol // ""' "$cfg" 2>/dev/null)"
+    network="$(jq -r '.inbounds[0].streamSettings.network // "tcp"' "$cfg" 2>/dev/null)"
+    if [[ "$proto" != "vmess" && "$proto" != "vless" ]]; then
+    echo -e "\033[1;31mNuevo usuario automatico solo esta disponible para VMess/VLESS.\033[0m"
+    echo -e "\033[1;37mPara Trojan/Shadowsocks cree otro protocolo o edite el JSON manualmente.\033[0m"
+    pausa_v2ray
+    menu_usuarios_v2ray
+    return
+    fi
+    if ! jq -e '.inbounds[0].settings.clients | type == "array"' "$cfg" >/dev/null 2>&1; then
+    echo -e "\033[1;31mEsta configuracion no tiene lista clients editable.\033[0m"
+    pausa_v2ray
+    menu_usuarios_v2ray
+    return
+    fi
+    clear
+    v2ray_title "Nuevo Usuario v2ray ${proto} ${V2SEL_TLS}"
+    printf "\033[1;33mSERVICIO:\033[0m \033[1;37m%s\033[0m\n" "${V2SEL_NAME}"
+    printf "\033[1;33mPROTOCOLO:\033[0m \033[1;37m%s\033[0m\n" "$proto"
+    echo -ne "${SSHPlus_DARK_GREEN}NOMBRE:${SCOLOR} "
+    read nick
+    nick="$(printf '%s' "$nick" | sed -e 's/[^a-zA-Z0-9_.-]//g')"
+    [[ -z "$nick" ]] && nick="user"
+    uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null)"
+    echo -ne "${SSHPlus_DARK_GREEN}UUID [$uuid]:${SCOLOR} "
+    read input_uuid
+    [[ -n "$input_uuid" ]] && uuid="$input_uuid"
+    if ! v2ray_valid_uuid "$uuid"; then
+    echo -e "\033[1;31mUUID no valido.\033[0m"
+    pausa_v2ray
+    menu_usuarios_v2ray
+    return
+    fi
+    echo -ne "${SSHPlus_DARK_GREEN}EXPIRA EN:${SCOLOR} "
+    read days
+    [[ -z "$days" ]] && days="30"
+    if [[ ! "$days" =~ ^[0-9]+$ ]]; then
+    echo -e "\033[1;31mDias no validos.\033[0m"
+    pausa_v2ray
+    menu_usuarios_v2ray
+    return
+    fi
+    valid="$(date '+%Y-%m-%d' -d "+${days} days" 2>/dev/null || date '+%Y-%m-%d')"
+    exp="$(date '+%F' -d "+${days} days" 2>/dev/null || date '+%F')"
+    tmp="${cfg}.tmp"
+    cp "$cfg" "$cfg.bak-$(date +%s)" 2>/dev/null || true
+    jq --arg uuid "$uuid" --arg email "$nick" --arg proto "$proto" '
+      .inbounds[0].settings.clients += [(
+        if $proto == "vless" then
+          {"id": $uuid, "email": $email}
+        else
+          {"id": $uuid, "alterId": 0, "email": $email, "security": "auto"}
+        end
+      )]
+    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || {
+    rm -f "$tmp"
+    echo -e "\033[1;31mNo se pudo agregar el usuario al JSON.\033[0m"
+    pausa_v2ray
+    menu_usuarios_v2ray
+    return
+    }
+    if /usr/local/bin/xray run -test -config "$cfg" >/tmp/tunnelcore-xray-test.log 2>&1; then
+    systemctl restart "xray@${V2SEL_PORT}" >/dev/null 2>&1
+    systemctl enable "xray@${V2SEL_PORT}" >/dev/null 2>&1
+    else
+    echo -e "\033[1;31mEl JSON no paso la validacion de Xray.\033[0m"
+    sed -n '1,12p' /tmp/tunnelcore-xray-test.log 2>/dev/null
+    pausa_v2ray
+    menu_usuarios_v2ray
+    return
+    fi
+    mkdir -p /etc/SSHPlus
+    grep -q "$uuid" /etc/SSHPlus/RegV2ray 2>/dev/null || echo "  $uuid | $nick | $valid " >> /etc/SSHPlus/RegV2ray
+    link_tls="$V2SEL_TLS"
+    domain="$V2SEL_DOMAIN"
+    path="$V2SEL_PATH"
+    ext_port="$V2SEL_EXT_PORT"
+    [[ -z "$ext_port" ]] && ext_port="$V2SEL_PORT"
+    [[ -z "$domain" ]] && domain="$(cat /etc/SSHPlus/IP 2>/dev/null || cat /etc/IP 2>/dev/null || v2ray_public_ip)"
+    add_host="$domain"
+    host_header=""
+    sni=""
+    [[ "$link_tls" == "tls" ]] && host_header="$domain" && sni="$domain"
+    enc_path="$(v2ray_urlencode_path "$path")"
+    if [[ "$proto" == "vmess" ]]; then
+    local tls_value=""
+    [[ "$link_tls" == "tls" ]] && tls_value="tls"
+    vmess_json=$(cat <<EOF
+{"v":"2","ps":"${nick}","add":"${add_host}","port":"${ext_port}","id":"${uuid}","aid":"0","scy":"auto","net":"${network}","type":"","host":"${host_header}","path":"${path}","tls":"${tls_value}","sni":"${sni}","alpn":"","fp":""}
+EOF
+)
+    vmess_b64="$(printf '%s' "$vmess_json" | base64 -w 0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
+    uri="vmess://${vmess_b64}"
+    else
+    if [[ "$link_tls" == "tls" ]]; then
+    uri="vless://${uuid}@${add_host}:${ext_port}?type=${network}&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}#${nick}"
+    else
+    uri="vless://${uuid}@${add_host}:${ext_port}?type=${network}&security=none&path=${enc_path}#${nick}"
+    fi
+    fi
+    clear
+    v2ray_title "Nuevo Usuario v2ray ${proto} ${link_tls}"
+    printf "\033[1;33mSERVICIO:\033[0m \033[1;37m%s\033[0m\n" "${V2SEL_NAME}"
+    printf "\033[1;33mPROTOCOLO:\033[0m \033[1;37m%s\033[0m\n" "$proto"
+    printf "\033[1;33mNOMBRE:\033[0m \033[1;37m%s\033[0m\n" "$nick"
+    printf "\033[1;33mUUID:\033[0m \033[1;37m%s\033[0m\n" "$uuid"
+    printf "\033[1;33mEXPIRA EN:\033[0m \033[1;37m%s\033[0m\n" "$days"
+    v2ray_line
+    echo -e "\033[1;36m${uri}\033[0m"
+    v2ray_line
+    echo -ne "${SSHPlus_DARK_GREEN}Ver cliente json? [S/N]:${SCOLOR} "
+    read view_json
+    if [[ "$view_json" =~ ^[sS]$ ]]; then
+    echo ""
+    if [[ "$proto" == "vmess" ]]; then
+    printf '%s\n' "$vmess_json" | jq . 2>/dev/null || printf '%s\n' "$vmess_json"
+    else
+    jq -n --arg address "$add_host" --arg port "$ext_port" --arg id "$uuid" --arg network "$network" --arg security "$link_tls" --arg path "$path" --arg host "$host_header" --arg sni "$sni" '{outbounds:[{protocol:"vless",settings:{vnext:[{address:$address,port:($port|tonumber),users:[{id:$id,encryption:"none"}]}]},streamSettings:{network:$network,security:(if $security=="tls" then "tls" else "none" end),wsSettings:{path:$path,headers:{Host:$host}},tlsSettings:{serverName:$sni}}}]}'
+    fi
+    fi
+    pausa_v2ray
+    menu_usuarios_v2ray
+    }
+
     menu_xray_xhttp() {
     clear
     if ! xhttp_is_installed; then
@@ -2480,6 +2619,7 @@ EOF
             v2ray_opt "0" "Volver"
             v2ray_opt "12" "RECONFIGURAR"
             v2ray_opt "13" "DESINSTALAR"
+            v2ray_opt "14" "ADMINISTRAR USUARIOS"
             v2ray_line
             echo -ne "${SSHPlus_CYAN}Ingresa una Opcion:${SCOLOR} "
             read x
@@ -2498,6 +2638,7 @@ EOF
             11) v2ray_toggle_all_services ;;
             12) crear_protocolo_v2ray ;;
             13) unistallv2 ;;
+            14) menu_usuarios_v2ray ;;
             0 | 00) break ;;
             *) echo -e "\033[1;31mOpcion no valida!\033[0m"; sleep 2 ;;
             esac
@@ -2507,4 +2648,8 @@ EOF
 
 tc_xray_menu() {
     fun_v2raymanager "$@"
+}
+
+tc_v2ray_users_menu() {
+    menu_usuarios_v2ray "$@"
 }
