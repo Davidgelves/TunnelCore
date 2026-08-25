@@ -1,7 +1,7 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 #  TunnelCore — modules/protocols/v2ray.sh
-#  Gestor de V2Ray / Xray Oficial (Multi-V2Ray / Rufus)
+#  Gestor de V2Ray / Xray Oficial
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
@@ -47,10 +47,10 @@ tc_v2_restart() {
     fi
 }
 
-# ── Instalador Oficial Multi-V2Ray (Rufus) ────────────────────
+# ── Instalador Oficial V2Ray ──────────────────────────────────
 tc_v2_install_official() {
     tc_clear
-    tc_title "INSTALAR V2RAY (OFICIAL RUFUS / MULTI-V2RAY)"
+    tc_title "INSTALAR V2RAY / XRAY"
 
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update -y >/dev/null 2>&1 || true
@@ -509,7 +509,7 @@ tc_v2_del_user() {
     tc_pause
 }
 
-# ── Menú Principal V2Ray Oficial Rufus ────────────────────────
+# ── Menú Principal V2Ray ───────────────────────────────────────
 tc_xray_menu() {
     while true; do
         tc_clear
@@ -518,7 +518,7 @@ tc_xray_menu() {
         tc_title "GESTIÓN DE V2RAY / XRAY $(tc_v2_status_mark)"
 
         if ! tc_v2_is_installed; then
-            tc_opt "1" "INSTALAR V2RAY (OFICIAL MULTI-V2RAY / RUFUS)"
+            tc_opt "1" "INSTALAR V2RAY / XRAY"
             tc_line
             tc_opt "0" "$(_t 'back')"
             tc_line
@@ -543,7 +543,7 @@ tc_xray_menu() {
             tc_opt "4" "MODIFICAR UUID DE USUARIO"
             tc_opt "5" "ELIMINAR USUARIO"
             tc_line
-            tc_opt "6" "ABRIR MENÚ COMPLETO MULTI-V2RAY (CONSOLA OFICIAL)"
+            tc_opt "6" "ABRIR CONSOLA AVANZADA V2RAY"
             tc_opt "7" "CONFIGURAR DOMINIO CDN / HOST"
             tc_opt "8" "REINICIAR SERVICIO V2RAY"
             tc_opt "9" "VER LOGS EN TIEMPO REAL"

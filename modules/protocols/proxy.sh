@@ -59,7 +59,7 @@ PROXY_PORT2="${PROXY_PORT2:-}"
 EOF
 }
 
-# ── Selector de Redirección Estilo NoxuraSSH ───────────────────
+# ── Selector de Redirección de Tráfico ─────────────────────────
 TC_SELECTED_TARGET="127.0.0.1:22"
 
 tc_proxy_ask_target() {

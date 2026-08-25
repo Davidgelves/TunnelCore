@@ -1,7 +1,7 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 #  TunnelCore — modules/protocols/slowdns.sh
-#  Gestión de SlowDNS (DNSTT Server) 1:1 con NoxuraSSH
+#  Gestión de SlowDNS (DNSTT Server)
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail

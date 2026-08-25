@@ -1,7 +1,7 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 #  TunnelCore — modules/protocols/hysteria.sh
-#  Gestión de UDP-Hysteria v1 1:1 con NoxuraSSH
+#  Gestión de UDP-Hysteria v1
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
@@ -73,7 +73,7 @@ tc_hyst_shell_quote() {
 tc_hyst_build_auth_list() {
     local db="/etc/tunnelcore/users.db" pass_dir="/etc/tunnelcore/passwords" user pass found=0 sep=""
     
-    # Migración de compatibilidad con NoxuraSSH si existen usuarios previos
+    # Compatibilidad con bases de datos anteriores si existen usuarios
     if [[ ! -s "$db" && -f "/root/usuarios.db" ]]; then
         db="/root/usuarios.db"
         pass_dir="/etc/SSHPlus/senha"
