@@ -65,26 +65,24 @@ tc_banner_delete() {
     tc_pause
 }
 
-# ── Pegar Banner Personalizado (Pegar -> Guardar / Cancelar) ──
+# ── Pegar Banner Directo ──────────────────────────────────────
 tc_banner_paste_custom() {
     tc_clear
-    tc_title "AGREGAR BANNER PERSONALIZADO"
+    tc_title "PEGAR BANNER PERSONALIZADO"
 
-    printf '%bPegue su código HTML o texto de Banner a continuación:%b\n' "$TC_YELLOW" "$TC_NC"
-    printf '%b(Haga clic derecho o Ctrl+Shift+V para pegar y presione Enter)%b\n\n' "$TC_DARK_GREEN" "$TC_NC"
+    printf '%bInstrucciones:%b\n' "$TC_YELLOW" "$TC_NC"
+    printf ' 1. Pegue su código HTML o texto (Clic derecho o Ctrl+Shift+V).\n'
+    printf ' 2. Presione %bEnter%b y luego presione %bCtrl+D%b (o escriba %bFIN%b en una línea vacía) para terminar.\n' "$TC_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC"
+    tc_line
+    printf '%b--- COMIENCE A PEGAR A CONTINUACIÓN ---%b\n' "$TC_CYAN" "$TC_NC"
 
     local tmp_banner="/tmp/banner_input_$$"
     > "$tmp_banner"
 
-    # Leer primera línea bloqueante
-    read -r first_line
-    if [[ -n "$first_line" ]]; then
-        echo "$first_line" >> "$tmp_banner"
-        # Capturar líneas adicionales si se pegó un bloque multilínea
-        while IFS= read -r -t 0.3 next_line; do
-            echo "$next_line" >> "$tmp_banner"
-        done
-    fi
+    while IFS= read -r line; do
+        [[ "$line" == "FIN" || "$line" == "fin" ]] && break
+        echo "$line" >> "$tmp_banner"
+    done
 
     if [[ ! -s "$tmp_banner" ]]; then
         rm -f "$tmp_banner"
@@ -92,9 +90,6 @@ tc_banner_paste_custom() {
         tc_pause
         return
     fi
-
-    # Limpiar cualquier resto en el buffer de entrada antes de mostrar el menú
-    while read -r -t 0.1 _flush; do :; done
 
     # Mostrar vista previa y preguntar si desea Guardar o Cancelar
     tc_clear
@@ -126,6 +121,29 @@ tc_banner_paste_custom() {
     esac
 }
 
+# ── Editor Nano Rápido ────────────────────────────────────────
+tc_banner_edit_nano() {
+    tc_banner_init
+    tc_clear
+    tc_title "EDITAR / PEGAR BANNER CON NANO"
+    printf '%bInstrucciones en Nano:%b\n' "$TC_YELLOW" "$TC_NC"
+    printf ' - Pegue su código con Clic Derecho.\n'
+    printf ' - Guardar: Presione %bCtrl+O%b y luego %bEnter%b\n' "$TC_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC"
+    printf ' - Salir: Presione %bCtrl+X%b\n' "$TC_GREEN" "$TC_NC"
+    tc_line
+    tc_pause
+
+    if command -v nano >/dev/null 2>&1; then
+        nano "$TC_BANNER_FILE"
+    else
+        vi "$TC_BANNER_FILE"
+    fi
+
+    tc_banner_apply
+    tc_msg_ok "Banner guardado y aplicado a OpenSSH y Dropbear."
+    tc_pause
+}
+
 tc_banner_menu() {
     while true; do
         tc_clear
@@ -141,8 +159,8 @@ tc_banner_menu() {
         printf '%bESTADO DEL BANNER:%b %b\n' "$TC_DARK_GREEN" "$TC_NC" "$banner_active"
         tc_line
         tc_opt "1" "ACTIVAR / APLICAR BANNER ACTUAL"
-        tc_opt "2" "PEGAR BANNER PERSONALIZADO (HTML / TEXTO)"
-        tc_opt "3" "EDITAR CÓDIGO CON NANO"
+        tc_opt "2" "PEGAR / EDITAR BANNER (NANO - RECOMENDADO)"
+        tc_opt "3" "PEGAR DIRECTO EN TERMINAL"
         tc_opt "4" "RESTAURAR BANNER POR DEFECTO"
         tc_opt "5" "VER VISTA PREVIA DEL BANNER"
         tc_opt "6" "ELIMINAR BANNER"
@@ -160,20 +178,10 @@ tc_banner_menu() {
                 tc_pause
                 ;;
             2|02)
-                tc_banner_paste_custom
+                tc_banner_edit_nano
                 ;;
             3|03)
-                tc_banner_init
-                tc_clear
-                tc_title "EDITAR BANNER (Guardar: Ctrl+O, Salir: Ctrl+X)"
-                if command -v nano >/dev/null 2>&1; then
-                    nano "$TC_BANNER_FILE"
-                else
-                    vi "$TC_BANNER_FILE"
-                fi
-                tc_banner_apply
-                tc_msg_ok "Banner actualizado y aplicado."
-                tc_pause
+                tc_banner_paste_custom
                 ;;
             4|04)
                 if tc_confirm "¿Restaurar el banner sencillo por defecto?"; then
