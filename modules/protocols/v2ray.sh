@@ -1596,13 +1596,16 @@ EOF
     instalar_xray_xhttp
     return
     fi
-    v2ray_opt "1" "VLESS + WebSocket CDN TLS 443"
-    v2ray_opt "2" "VLESS + WebSocket sin TLS 80"
-    v2ray_opt "3" "VMess + WebSocket sin TLS 80"
-    v2ray_opt "4" "VMess + WebSocket CDN TLS 443"
-    v2ray_opt "5" "VLESS + WebSocket sin TLS 8080"
-    v2ray_opt "6" "VMess + WebSocket sin TLS 8080"
-    v2ray_opt "7" "VLESS + XHTTP sin TLS 8443"
+    echo -e "\033[1;33mVMess\033[0m"
+    v2ray_opt "1" "VMess + WebSocket"
+    v2ray_opt "2" "VMess + WebSocket CDN TLS"
+    v2ray_opt "3" "VMess + WebSocket alternativo"
+    echo ""
+    echo -e "\033[1;33mVLESS\033[0m"
+    v2ray_opt "4" "VLESS + WebSocket"
+    v2ray_opt "5" "VLESS + WebSocket CDN TLS"
+    v2ray_opt "6" "VLESS + WebSocket alternativo"
+    v2ray_opt "7" "VLESS + XHTTP"
     v2ray_line
     v2ray_opt "0" "VOLVER"
     v2ray_line
@@ -1610,12 +1613,12 @@ EOF
     [[ "$selection" = "0" ]] && fun_v2raymanager && return
 
     case "$selection" in
-      1) proto="vless"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/v2ray" ;;
-      2) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
-      3) proto="vmess"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
-      4) proto="vmess"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/v2ray" ;;
-      5) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="8080"; ext_port="8080"; path="/v2ray" ;;
-      6) proto="vmess"; network="ws"; tls="none"; link_tls="none"; port="8080"; ext_port="8080"; path="/v2ray" ;;
+      1) proto="vmess"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
+      2) proto="vmess"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/v2ray" ;;
+      3) proto="vmess"; network="ws"; tls="none"; link_tls="none"; port="8080"; ext_port="8080"; path="/v2ray" ;;
+      4) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
+      5) proto="vless"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/v2ray" ;;
+      6) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="8080"; ext_port="8080"; path="/v2ray" ;;
       7) proto="vless"; network="xhttp"; tls="none"; link_tls="none"; port="8443"; ext_port="8443"; path="/xhttp" ;;
     esac
 
