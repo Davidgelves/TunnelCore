@@ -61,14 +61,19 @@ tc_get_user_limit() {
 
 tc_user_active_conns() {
     local u="$1"
-    local c=0
-    local sqd ovp drp
-    sqd="$(ps -u "$u" 2>/dev/null | grep -c 'sshd' || echo "0")"
-    ovp=0
-    [[ -e /etc/openvpn/openvpn-status.log ]] && ovp="$(grep -E ,"$u", /etc/openvpn/openvpn-status.log 2>/dev/null | wc -l)"
+    local sqd=0 ovp=0 drp=0
+    sqd="$(ps -u "$u" 2>/dev/null | grep 'sshd' | wc -l)"
+    [[ ! "$sqd" =~ ^[0-9]+$ ]] && sqd=0
+
+    if [[ -e /etc/openvpn/openvpn-status.log ]]; then
+        ovp="$(grep -E ,"$u", /etc/openvpn/openvpn-status.log 2>/dev/null | wc -l)"
+    fi
+    [[ ! "$ovp" =~ ^[0-9]+$ ]] && ovp=0
+
     drp="$(ps aux 2>/dev/null | grep dropbear | grep -w "$u" | grep -v grep | wc -l)"
-    c=$((sqd + ovp + drp))
-    echo "$c"
+    [[ ! "$drp" =~ ^[0-9]+$ ]] && drp=0
+
+    echo "$((sqd + ovp + drp))"
 }
 
 tc_get_user_exp_days() {
