@@ -72,6 +72,20 @@ DROPBEAR_RECEIVE_WINDOW=65536
 EOF
     fi
 
+    # Registrar shells válidos para que Dropbear y PAM permitan autenticar usuarios
+    grep -qxF "/bin/false" /etc/shells 2>/dev/null || echo "/bin/false" >> /etc/shells
+    grep -qxF "/usr/sbin/nologin" /etc/shells 2>/dev/null || echo "/usr/sbin/nologin" >> /etc/shells
+
+    if [[ ! -f /etc/pam.d/dropbear ]]; then
+        mkdir -p /etc/pam.d
+        cat > /etc/pam.d/dropbear <<'EOF'
+@include common-auth
+@include common-account
+@include common-password
+@include common-session
+EOF
+    fi
+
     # Configurar PasswordAuthentication en SSH si no estaba
     if [[ -f /etc/ssh/sshd_config ]]; then
         grep -q "^PasswordAuthentication" /etc/ssh/sshd_config || echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config

@@ -15,6 +15,10 @@ tc_users_init() {
     chmod 700 "$TC_PASS_DIR"
     [[ -f "$TC_USERS_DB" ]] || touch "$TC_USERS_DB"
     chmod 600 "$TC_USERS_DB"
+
+    # Registrar shells válidos en /etc/shells para que Dropbear y PAM permitan autenticar
+    grep -qxF "/bin/false" /etc/shells 2>/dev/null || echo "/bin/false" >> /etc/shells
+    grep -qxF "/usr/sbin/nologin" /etc/shells 2>/dev/null || echo "/usr/sbin/nologin" >> /etc/shells
 }
 
 # ── Validar nombre de usuario ─────────────────────────────────

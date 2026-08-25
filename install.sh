@@ -78,6 +78,20 @@ chmod 700 /etc/tunnelcore/passwords
 [[ -f /etc/tunnelcore/users.db ]] || touch /etc/tunnelcore/users.db
 chmod 600 /etc/tunnelcore/users.db
 
+# Registrar shells en /etc/shells para Dropbear y OpenSSH
+grep -qxF "/bin/false" /etc/shells 2>/dev/null || echo "/bin/false" >> /etc/shells
+grep -qxF "/usr/sbin/nologin" /etc/shells 2>/dev/null || echo "/usr/sbin/nologin" >> /etc/shells
+
+if [[ ! -f /etc/pam.d/dropbear ]]; then
+    mkdir -p /etc/pam.d
+    cat > /etc/pam.d/dropbear <<'EOF'
+@include common-auth
+@include common-account
+@include common-password
+@include common-session
+EOF
+fi
+
 if [[ -f "${INSTALL_DIR}/modules/protocols/proxy_server.py" ]]; then
     cp -f "${INSTALL_DIR}/modules/protocols/proxy_server.py" /etc/tunnelcore/proxy/proxy_server.py
     chmod +x /etc/tunnelcore/proxy/proxy_server.py
@@ -86,6 +100,10 @@ fi
 if systemctl is-active --quiet tunnelcore-proxy 2>/dev/null; then
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl restart tunnelcore-proxy >/dev/null 2>&1 || true
+fi
+
+if systemctl is-active --quiet dropbear 2>/dev/null; then
+    systemctl restart dropbear >/dev/null 2>&1 || service dropbear restart >/dev/null 2>&1 || true
 fi
 
 echo ""
