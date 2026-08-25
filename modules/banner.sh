@@ -93,6 +93,9 @@ tc_banner_paste_custom() {
         return
     fi
 
+    # Limpiar cualquier resto en el buffer de entrada antes de mostrar el menú
+    while read -r -t 0.1 _flush; do :; done
+
     # Mostrar vista previa y preguntar si desea Guardar o Cancelar
     tc_clear
     tc_title "VISTA PREVIA DEL BANNER"
@@ -104,6 +107,7 @@ tc_banner_paste_custom() {
     tc_line
     tc_prompt
     read -r choice
+    choice="$(echo "$choice" | tr -d '\r\n[:space:]')"
 
     case "$choice" in
         1|01)
