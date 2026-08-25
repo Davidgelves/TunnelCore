@@ -21,7 +21,7 @@ tc_xray_is_installed() {
 }
 
 tc_xray_is_running() {
-    systemctl is-active --quiet xray 2>/dev/null || pgrep -x xray >/dev/null 2>&1
+    systemctl is-active --quiet xray 2>/dev/null || pgrep -x xray >/dev/null 2>&1 || (command -v ss >/dev/null 2>&1 && ss -tunlp 2>/dev/null | grep -qE 'xray|/xray')
 }
 
 tc_xray_status_mark() {
@@ -32,6 +32,17 @@ tc_xray_status_mark() {
     else
         printf '%b[NO INSTALADO]%b' "$TC_YELLOW" "$TC_NC"
     fi
+}
+
+tc_xray_restart_service() {
+    mkdir -p "$TC_XRAY_DIR" /var/log/xray
+    chmod 755 /var/log/xray 2>/dev/null || true
+    tc_xray_ensure_certs
+    systemctl stop apache2 >/dev/null 2>&1 || true
+    systemctl disable apache2 >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1
+    systemctl enable xray >/dev/null 2>&1
+    tc_xray_restart_service >/dev/null 2>&1
 }
 
 # ── Generar Certificados SSL Permisivos (Acepta cualquier SNI) ──
@@ -149,7 +160,6 @@ tc_xray_write_base_config() {
         "network": "ws",
         "security": "tls",
         "tlsSettings": {
-          "allowInsecure": true,
           "certificates": [
             {
               "certificateFile": "${TC_XRAY_CERT}",
@@ -201,7 +211,6 @@ tc_xray_write_base_config() {
         "network": "ws",
         "security": "tls",
         "tlsSettings": {
-          "allowInsecure": true,
           "certificates": [
             {
               "certificateFile": "${TC_XRAY_CERT}",
@@ -321,7 +330,7 @@ tc_xray_install() {
     }
 
     tc_xray_write_base_config "$path"
-    systemctl restart xray >/dev/null 2>&1
+    tc_xray_restart_service >/dev/null 2>&1
 
     if tc_xray_is_running; then
         tc_msg_ok "Xray instalado y activo con puertos 443 (TLS), 80 (HTTP) y 8443 (VLESS)."
@@ -387,7 +396,7 @@ tc_xray_add_user() {
     mkdir -p "$TC_XRAY_DIR"
     echo "${nick} | ${uuid} | ${expiry_date} | $(date +%Y-%m-%d)" >> "$TC_XRAY_USERS"
 
-    systemctl restart xray >/dev/null 2>&1
+    tc_xray_restart_service >/dev/null 2>&1
 
     tc_clear
     tc_title "CUENTA CREADA CON ÉXITO"
@@ -478,7 +487,7 @@ tc_xray_modify_uuid() {
     ' "$TC_XRAY_CONF" > "$tmp_json" && mv "$tmp_json" "$TC_XRAY_CONF"
 
     sed -i "s/${old_uuid}/${new_uuid}/g" "$TC_XRAY_USERS"
-    systemctl restart xray >/dev/null 2>&1
+    tc_xray_restart_service >/dev/null 2>&1
 
     tc_clear
     tc_title "UUID MODIFICADO CON ÉXITO"
@@ -513,7 +522,7 @@ tc_xray_change_path() {
     ' "$TC_XRAY_CONF" > "$tmp_json" && mv "$tmp_json" "$TC_XRAY_CONF"
 
     echo "$new_path" > "$TC_XRAY_PATH_FILE"
-    systemctl restart xray >/dev/null 2>&1
+    tc_xray_restart_service >/dev/null 2>&1
 
     tc_msg_ok "Path WebSocket actualizado a: $new_path"
     tc_pause
@@ -649,7 +658,7 @@ tc_xray_del_user() {
     ' "$TC_XRAY_CONF" > "$tmp_json" && mv "$tmp_json" "$TC_XRAY_CONF"
 
     sed -i "/^[[:space:]]*${target_nick}[[:space:]]*|/d" "$TC_XRAY_USERS"
-    systemctl restart xray >/dev/null 2>&1
+    tc_xray_restart_service >/dev/null 2>&1
 
     tc_msg_ok "Cuenta '$target_nick' eliminada."
     tc_pause
@@ -709,7 +718,7 @@ tc_xray_menu() {
                 5|05) tc_xray_change_domain ;;
                 6|06) tc_xray_del_user ;;
                 7|07)
-                    systemctl restart xray >/dev/null 2>&1
+                    tc_xray_restart_service >/dev/null 2>&1
                     tc_msg_ok "Servicio V2Ray reiniciado."
                     tc_pause
                     ;;
