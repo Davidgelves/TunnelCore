@@ -205,6 +205,62 @@ v2ray_random_path() {
     rnd="$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 8 || date +%s)"
     echo "/${rnd}/"
 }
+v2ray_ensure_local_cert() {
+    local domain="${1:-local}" cert_dir="/root/TunnelCore/certificados/local"
+    mkdir -p "$cert_dir"
+    if [[ ! -s "${cert_dir}/local.crt" || ! -s "${cert_dir}/local.key" ]]; then
+    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+      -keyout "${cert_dir}/local.key" \
+      -out "${cert_dir}/local.crt" \
+      -subj "/CN=${domain}" >/dev/null 2>&1 || return 1
+    fi
+    return 0
+}
+v2ray_normalize_inbound_json() {
+    local inbound_json="$1" tls="$2" network="$3" host="$4" path="$5" tag="$6" proto="$7" tmp
+    tmp="${inbound_json}.tmp"
+    jq --arg tls "$tls" --arg network "$network" --arg host "$host" --arg path "$path" --arg tag "$tag" --arg proto "$proto" '
+      .tag = $tag |
+      (if ((.settings.clients? | type) == "array") then
+        .settings.clients |= map(
+          if (.id?) then
+            . + {email: (.email // $tag), level: (.level // 0)}
+          else
+            .
+          end
+        )
+      else . end) |
+      .streamSettings.security = $tls |
+      (if $tls == "tls" then
+        .streamSettings.tlsSettings = {
+          certificates: [
+            {
+              certificateFile: "/root/TunnelCore/certificados/local/local.crt",
+              keyFile: "/root/TunnelCore/certificados/local/local.key"
+            }
+          ]
+        }
+      else
+        del(.streamSettings.tlsSettings)
+      end) |
+      (if $network == "ws" then
+        .streamSettings.wsSettings = ((.streamSettings.wsSettings // {}) + {
+          headers: {Host: $host},
+          path: $path
+        })
+      else . end) |
+      (if $network == "h2" then
+        .streamSettings.httpSettings = ((.streamSettings.httpSettings // {}) + {
+          path: $path
+        }) | del(.streamSettings.h2Settings)
+      else . end) |
+      (if $network == "grpc" then
+        .streamSettings.grpcSettings = ((.streamSettings.grpcSettings // {}) + {
+          serviceName: $path
+        })
+      else . end)
+    ' "$inbound_json" > "$tmp" && mv "$tmp" "$inbound_json"
+}
 v2ray_wizard_screen() {
     local name="$1" type="$2" port="$3" proto="$4" network="$5" host="$6" path="$7" tls="$8"
     clear
@@ -219,7 +275,7 @@ v2ray_wizard_screen() {
     [[ -n "$tls" ]] && printf "\033[1;33mTLS:\033[0m \033[1;37m%s\033[0m\n" "$tls" && v2ray_line
 }
 v2ray_install_wizard() {
-    local name default_name type type_label port proto proto_label network network_label host path default_path tls tls_label opt uuid password method cfg port_cfg inbound_json test_log ext_port domain enc_path uri vmess_json vmess_b64
+    local name default_name type type_label port proto proto_label network network_label host path default_path tls tls_label opt uuid password method cfg port_cfg inbound_json test_log ext_port domain
     default_name="$(v2ray_random_name)"
     v2ray_wizard_screen
     echo -ne "${SSHPlus_DARK_GREEN}NOMBRE: [${default_name}]:${SCOLOR} "
@@ -362,12 +418,101 @@ v2ray_install_wizard() {
     password="$(tc_rand_string 16 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
     method="aes-128-gcm"
     mkdir -p /usr/local/etc/xray /etc/SSHPlus/v2ray /etc/SSHPlus /var/log/xray
+    if [[ "$tls" == "tls" ]]; then
+    v2ray_ensure_local_cert "${host:-local}" || { v2ray_install_line "Generando certificado TLS..........." 1; pausa_v2ray; return 1; }
+    fi
     inbound_json="$(v2ray_write_inbound_json "$proto" "$network" "$tls" "$port" "$path" "$uuid" "$password" "$method" "" "${host}" "" "")"
+    v2ray_normalize_inbound_json "$inbound_json" "$tls" "$network" "$host" "$path" "$name" "$proto" || {
+    rm -f "$inbound_json"
+    v2ray_install_line "Normalizando inbound................." 1
+    pausa_v2ray
+    return 1
+    }
     port_cfg="/usr/local/etc/xray/config-${port}.json"
     jq -n --slurpfile inbound "$inbound_json" '{
-      "log": { "loglevel": "warning", "access": "/var/log/xray/access-\($inbound[0].port).log", "error": "/var/log/xray/error-\($inbound[0].port).log" },
-      "inbounds": [ $inbound[0] ],
-      "outbounds": [ { "protocol": "freedom", "tag": "direct" } ]
+      "log": {
+        "access": "/root/TunnelCore/v2ray/log/access.log",
+        "error": "/root/TunnelCore/v2ray/log/error.log",
+        "loglevel": "none"
+      },
+      "stats": {},
+      "api": {
+        "tag": "api",
+        "services": [
+          "HandlerService",
+          "LoggerService",
+          "StatsService"
+        ]
+      },
+      "policy": {
+        "levels": {
+          "0": {
+            "statsUserDownlink": true,
+            "statsUserUplink": true
+          }
+        },
+        "system": {
+          "statsInboundDownlink": true,
+          "statsInboundUplink": true,
+          "statsOutboundDownlink": true,
+          "statsOutboundUplink": true
+        }
+      },
+      "inbounds": [
+        $inbound[0],
+        {
+          "listen": "127.0.0.1",
+          "port": (10000 + $inbound[0].port),
+          "protocol": "dokodemo-door",
+          "settings": {
+            "address": "127.0.0.1"
+          },
+          "tag": "api"
+        }
+      ],
+      "outbounds": [
+        {
+          "protocol": "freedom",
+          "settings": {}
+        },
+        {
+          "protocol": "blackhole",
+          "settings": {},
+          "tag": "block"
+        }
+      ],
+      "routing": {
+        "rules": [
+          {
+            "ip": [
+              "0.0.0.0/8",
+              "10.0.0.0/8",
+              "100.64.0.0/10",
+              "169.254.0.0/16",
+              "172.16.0.0/12",
+              "192.0.0.0/24",
+              "192.0.2.0/24",
+              "192.168.0.0/16",
+              "198.18.0.0/15",
+              "198.51.100.0/24",
+              "203.0.113.0/24",
+              "::1/128",
+              "fc00::/7",
+              "fe80::/10"
+            ],
+            "outboundTag": "block",
+            "type": "field"
+          },
+          {
+            "inboundTag": [
+              "api"
+            ],
+            "outboundTag": "api",
+            "type": "field"
+          }
+        ],
+        "domainStrategy": "AsIs"
+      }
     }' > "$port_cfg" || { rm -f "$inbound_json"; v2ray_install_line "Generando config.json..............." 1; pausa_v2ray; return 1; }
     rm -f "$inbound_json"
     test_log="/tmp/tunnelcore-xray-test.log"
@@ -1940,12 +2085,12 @@ EOF
   "protocol": "vmess",
   "settings": {
     "clients": [
-      { "id": "${uuid}", "alterId": 0 }
+      { "id": "${uuid}", "alterId": 0, "email": "${proto}-${port}", "level": 0 }
     ]
   },
   "streamSettings": {
     "network": "tcp",
-    "security": "none"
+    "security": "${tls}"
   }
 }
 EOF
@@ -1958,13 +2103,26 @@ EOF
   "protocol": "vmess",
   "settings": {
     "clients": [
-      { "id": "${uuid}", "alterId": 0 }
+      { "id": "${uuid}", "alterId": 0, "email": "${proto}-${port}", "level": 0 }
     ]
   },
   "streamSettings": {
     "network": "${network}",
-    "security": "none",
-    "${network}Settings": { "path": "${path}" }
+    "security": "${tls}",
+    "tlsSettings": {
+      "certificates": [
+        {
+          "certificateFile": "/root/TunnelCore/certificados/local/local.crt",
+          "keyFile": "/root/TunnelCore/certificados/local/local.key"
+        }
+      ]
+    },
+    "${network}Settings": {
+      "headers": {
+        "Host": "${reality_server}"
+      },
+      "path": "${path}"
+    }
   }
 }
 EOF
@@ -2454,7 +2612,7 @@ EOF
     clear
     v2ray_select_config || { fun_v2raymanager; return; }
     clear
-    v2ray_title "CONFIG JSON ${V2SEL_PORT}"
+    v2ray_title "conf: config.${V2SEL_PORT}.json"
     if [[ -s "/usr/local/etc/xray/config-${V2SEL_PORT}.json" ]]; then
     jq . "/usr/local/etc/xray/config-${V2SEL_PORT}.json" 2>/dev/null || cat "/usr/local/etc/xray/config-${V2SEL_PORT}.json"
     else
