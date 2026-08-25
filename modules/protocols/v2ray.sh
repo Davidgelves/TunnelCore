@@ -158,6 +158,16 @@ msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[0m'
     }
 
     intallv2ray () {
+    clear
+    v2ray_title "INSTALAR V2RAY / XRAY"
+    echo -e "\033[1;37mTunnelCore instalara Xray-core nativo para VLESS XHTTP.\033[0m"
+    echo -e "\033[1;33mEste modo no depende del instalador externo antiguo de V2Ray.\033[0m"
+    pausa_v2ray
+    instalar_xray_xhttp
+    return
+    }
+
+    intallv2ray_legacy () {
     if command -v apt-get >/dev/null 2>&1; then
     apt-get update -y >/dev/null 2>&1 || true
     apt-get install -y curl wget unzip ca-certificates jq >/dev/null 2>&1 || true
