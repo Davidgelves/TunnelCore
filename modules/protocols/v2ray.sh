@@ -1727,7 +1727,7 @@ EOF
     }
 
     crear_protocolo_v2ray() {
-    local opt proto network tls link_tls port ext_port path domain host_header sni uuid user exp cfg uri enc_path vmess_json vmess_b64 vmess_tls tmp inbound_json password method reality_dest reality_server reality_private reality_public reality_short
+    local opt proto network tls link_tls port ext_port path domain host_header sni uuid user exp cfg uri enc_path vmess_json vmess_b64 vmess_tls tmp inbound_json password method reality_dest reality_server reality_private reality_public reality_short backup_file test_log
     clear
     v2ray_title "CREAR PROTOCOLO V2RAY / XRAY"
     if ! xhttp_is_installed; then
@@ -1854,7 +1854,8 @@ EOF
     exp="$(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || date '+%Y-%m-%d')"
     cfg="/usr/local/etc/xray/config.json"
     mkdir -p /usr/local/etc/xray /etc/SSHPlus/v2ray /etc/v2ray /etc/SSHPlus
-    [[ -f "$cfg" ]] && cp "$cfg" "$cfg.bak-$(date +%s)"
+    backup_file="${cfg}.bak-$(date +%s)"
+    [[ -f "$cfg" ]] && cp "$cfg" "$backup_file"
 
     if [[ ! -s "$cfg" ]]; then
     cat > "$cfg" <<'EOF'
@@ -1910,10 +1911,14 @@ EOF
     rm -f "$inbound_json"
 
     ln -sf "$cfg" /etc/v2ray/config.json 2>/dev/null || true
-    if /usr/local/bin/xray test -config "$cfg" >/dev/null 2>&1; then
+    test_log="/tmp/tunnelcore-xray-test.log"
+    if /usr/local/bin/xray run -test -config "$cfg" >"$test_log" 2>&1; then
     systemctl restart xray >/dev/null 2>&1
     else
     echo -e "\033[1;31mEl config.json generado no paso la validacion de Xray.\033[0m"
+    [[ -s "$backup_file" ]] && cp "$backup_file" "$cfg"
+    echo -e "\033[1;33mDetalle del error:\033[0m"
+    sed -n '1,12p' "$test_log" 2>/dev/null
     pausa_v2ray
     fun_v2raymanager
     return
