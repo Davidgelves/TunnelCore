@@ -4,7 +4,6 @@
 #  Gestión de SlowDNS (DNSTT Server)
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 TC_SLOW_DIR="/etc/tunnelcore/slowdns"
 TC_SLOW_CONF="${TC_SLOW_DIR}/slowdns.conf"

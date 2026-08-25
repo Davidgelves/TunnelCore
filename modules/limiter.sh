@@ -5,7 +5,6 @@
 #  Ejecutado de forma limpia mediante systemd (sin screens huérfanos)
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 TC_LIMITER_SCRIPT="/usr/local/bin/tunnelcore-limiter"
 TC_LIMITER_SERVICE="/etc/systemd/system/tunnelcore-limiter.service"

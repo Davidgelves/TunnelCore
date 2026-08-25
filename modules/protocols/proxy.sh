@@ -4,7 +4,6 @@
 #  Gestión Directa y Unificada de Proxy HTTP / SOCKS (Modo AUTO)
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 TC_PROXY_DIR="/etc/tunnelcore/proxy"
 TC_PROXY_PY="${TC_PROXY_DIR}/proxy_server.py"

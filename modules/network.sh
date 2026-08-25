@@ -4,7 +4,6 @@
 #  Optimización de Red, TCP BBR, Firewall y Seguridad
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 tc_bbr_is_active() {
     sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep -q "bbr"

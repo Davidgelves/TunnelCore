@@ -4,7 +4,6 @@
 #  Gestión de Squid Proxy
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 TC_SQUID_CONF="/etc/squid/squid.conf"
 [[ -d "/etc/squid3" ]] && TC_SQUID_CONF="/etc/squid3/squid.conf"

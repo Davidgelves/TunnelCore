@@ -4,7 +4,6 @@
 #  Uso: bash <(curl -fsSL https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh)
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 

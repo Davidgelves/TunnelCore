@@ -4,7 +4,6 @@
 #  API CheckUser para aplicaciones VPN Android (HTTP JSON)
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 TC_CHECK_DIR="/etc/tunnelcore/checkuser"
 TC_CHECK_PY="${TC_CHECK_DIR}/checkuser_server.py"

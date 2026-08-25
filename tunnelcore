@@ -4,7 +4,6 @@
 #  Gestión de VPS / SSH / Tunneling
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 # ── Detectar directorio real del script (resolviendo enlaces simbólicos) ────
 SOURCE="${BASH_SOURCE[0]}"

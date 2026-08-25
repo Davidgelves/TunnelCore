@@ -40,10 +40,10 @@ v2ray_title() {
 v2ray_opt() {
     local n="${1#0}"
     [[ -z "$n" ]] && n="0"
-    printf '%b[%s]\033[0m \033[1;37m>\033[0m \033[1;37m%s\033[0m %b\n' "$SSHPlus_NUM" "$n" "$2" "$3"
+    printf '%b[%s]\033[0m \033[1;37m>\033[0m \033[1;37m%s\033[0m %b\n' "$SSHPlus_NUM" "$n" "$2" "${3:-}"
 }
 v2ray_prompt() {
-    printf '\033[1;37m>\033[0m \033[1;37m%s\033[0m \033[1;37m' "$1"
+    printf '\033[1;37m>\033[0m \033[1;37m%s\033[0m \033[1;37m' "${1:-}"
 }
 v2ray_config_file() {
     local cfg

@@ -4,7 +4,6 @@
 #  Gestión y Personalización de Banner SSH / Dropbear
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 TC_BANNER_FILE="/etc/tunnelcore/banner"
 TC_SSHD_CONF="/etc/ssh/sshd_config"

@@ -4,7 +4,6 @@
 #  Gestión de UDP-Hysteria v1
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 TC_HYST_BIN="/usr/local/bin/hysteria1"
 TC_HYST_DIR="/etc/tunnelcore/hysteria"

@@ -5,7 +5,6 @@
 #  Compila desde fuente oficial de ambrop72/badvpn o instala binario
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 TC_BADVPN_BIN="/usr/local/bin/badvpn-udpgw"
 TC_BADVPN_DIR="/etc/tunnelcore/badvpn"

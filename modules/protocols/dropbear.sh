@@ -4,7 +4,6 @@
 #  Gestión de Dropbear SSH
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 TC_DROPBEAR_DEFAULT="/etc/default/dropbear"
 

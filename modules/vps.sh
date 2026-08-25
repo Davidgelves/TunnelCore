@@ -4,7 +4,6 @@
 #  Configuración y Mantenimiento del VPS
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 tc_vps_change_root_pass() {
     tc_clear

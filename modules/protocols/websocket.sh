@@ -4,7 +4,6 @@
 #  Gestión de WebSocket SSH
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 TC_WS_DIR="/etc/tunnelcore/websocket"
 TC_WS_PY="${TC_WS_DIR}/websocket_server.py"

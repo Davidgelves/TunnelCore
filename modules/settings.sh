@@ -4,7 +4,6 @@
 #  Ajustes del Script: Actualizaciones y Backup de Base de Datos
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
-set -uo pipefail
 
 tc_settings_update() {
     tc_clear
