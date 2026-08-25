@@ -285,7 +285,7 @@ tc_hyst_configure() {
         return
     fi
 
-    printf '%bPuerto principal Hysteria v1 [36712]:%b ' "$TC_GREEN" "$TC_NC"
+    printf '%bPuerto principal Hysteria v1 [Enter = 36712]:%b ' "$TC_GREEN" "$TC_NC"
     read -r port
     [[ -z "$port" ]] && port="36712"
     if ! tc_valid_port "$port"; then
@@ -294,19 +294,13 @@ tc_hyst_configure() {
         return
     fi
 
-    printf '%b¿Habilitar Port Hopping (Rangos UDP)? [s/N]:%b ' "$TC_GREEN" "$TC_NC"
-    read -r hop_resp
-    if [[ "$hop_resp" =~ ^[sS]$ ]]; then
-        printf '%bRangos iptables UDP [20000:50000]:%b ' "$TC_GREEN" "$TC_NC"
-        read -r rules
-        [[ -z "$rules" ]] && rules="20000:50000"
-        if ! tc_hyst_valid_rule_ranges "$rules"; then
-            tc_msg_err "Rangos inválidos. Ejemplo: 20000:50000"
-            sleep 2
-            return
-        fi
-    else
-        rules="none"
+    printf '%bRango iptables UDP [Enter = 1:50000]:%b ' "$TC_GREEN" "$TC_NC"
+    read -r rules
+    [[ -z "$rules" ]] && rules="1:50000"
+    if ! tc_hyst_valid_rule_ranges "$rules"; then
+        tc_msg_err "Rango inválido. Ejemplo: 1:50000"
+        sleep 2
+        return
     fi
 
     printf '%bOBFS Hysteria v1 [Enter = aleatorio]:%b ' "$TC_GREEN" "$TC_NC"
