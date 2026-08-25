@@ -1,7 +1,7 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 #  TunnelCore — modules/banner.sh
-#  Gestión y Personalización de Banner SSH / Dropbear (Sin Nano)
+#  Gestión y Personalización de Banner SSH / Dropbear
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
@@ -65,81 +65,49 @@ tc_banner_delete() {
     tc_pause
 }
 
-# ── Pegar Banner Personalizado en Terminal (Directo vía /dev/tty) ──
+# ── Pegar Banner Personalizado (Pegar -> Enter -> Guardado con Verificación) ──
 tc_banner_paste_custom() {
     tc_clear
     tc_title "AGREGAR BANNER PERSONALIZADO"
 
-    local tmp_file="/tmp/tc_banner_tmp_$$.html"
-    rm -f "$tmp_file"
+    printf '%bPegue su código HTML o texto de Banner a continuación y presione Enter:%b\n' "$TC_YELLOW" "$TC_NC"
+    printf '%b> %b' "$TC_CYAN" "$TC_NC"
 
-    python3 -c '
-import sys, os, select
+    local tmp_banner="/tmp/banner_input_$$.txt"
+    rm -f "$tmp_banner"
 
-try:
-    tty = open("/dev/tty", "r", encoding="utf-8", errors="replace")
-except Exception:
-    tty = sys.stdin
-
-print("\033[1;33mPegue su código HTML o texto de Banner a continuación y presione Enter:\033[0m\n")
-
-lines = []
-first = tty.readline()
-if first and first.strip():
-    lines.append(first)
-    while select.select([tty], [], [], 0.3)[0]:
-        extra = tty.readline()
-        if not extra:
-            break
-        lines.append(extra)
-
-content = "".join(lines).strip()
-if not content:
-    sys.exit(2)
-
-with open(sys.argv[1], "w", encoding="utf-8") as f:
-    f.write(content + "\n")
-
-sys.exit(0)
-' "$tmp_file"
-
-    local ret=$?
-    if [[ $ret -ne 0 || ! -s "$tmp_file" ]]; then
-        rm -f "$tmp_file"
+    # Esperar de forma bloqueante a que el usuario pegue y dé Enter
+    local line1=""
+    read -r line1
+    if [[ -z "$line1" ]]; then
         tc_msg_warn "No se ingresó ningún texto."
         tc_pause
         return
     fi
 
-    # Mostrar vista previa y preguntar si desea Guardar o Cancelar
+    echo "$line1" > "$tmp_banner"
+
+    # Capturar líneas adicionales si el bloque contenía saltos de línea
+    while IFS= read -r -t 0.2 extra_line; do
+        echo "$extra_line" >> "$tmp_banner"
+    done
+
+    # Guardar y Aplicar
+    mkdir -p "/etc/tunnelcore"
+    cp -f "$tmp_banner" "$TC_BANNER_FILE"
+    rm -f "$tmp_banner"
+    tc_banner_apply
+
+    # Mostrar confirmación visual con lo que se pegó
     tc_clear
-    tc_title "VISTA PREVIA DEL BANNER"
-    cat "$tmp_file"
+    tc_title "BANNER GUARDADO CON ÉXITO"
+    printf '%bCONTENIDO DEL BANNER APLICADO:%b\n' "$TC_DARK_GREEN" "$TC_NC"
+    tc_line
+    cat "$TC_BANNER_FILE"
     echo ""
     tc_line
-    tc_opt "1" "GUARDAR Y APLICAR BANNER"
-    tc_opt "0" "CANCELAR"
-    tc_line
-    tc_prompt
-    read -r choice < /dev/tty
-    choice="$(echo "$choice" | tr -d '\r\n[:space:]')"
-
-    case "$choice" in
-        1|01)
-            mkdir -p "/etc/tunnelcore"
-            cp -f "$tmp_file" "$TC_BANNER_FILE"
-            rm -f "$tmp_file"
-            tc_banner_apply
-            echo ""
-            tc_msg_ok "¡Banner guardado y aplicado con éxito!"
-            tc_pause
-            ;;
-        *)
-            rm -f "$tmp_file"
-            tc_msg_warn "Operación cancelada. El banner no se modificó."
-            tc_pause
-            ;;
-    esac
+    tc_msg_ok "¡El banner se guardó y se aplicó correctamente a SSH y Dropbear!"
+    tc_pause
 }
 
 tc_banner_menu() {
