@@ -178,11 +178,11 @@ tc_connected_users() {
     # Contar sesiones SSH activas (excluyendo la propia)
     local count=0
     if command -v ss >/dev/null 2>&1; then
-        count="$(ss -tnp 2>/dev/null | grep -c ':22[[:space:]].*ESTAB' || echo 0)"
+        count="$(ss -tnp 2>/dev/null | grep -c ':22[[:space:]].*ESTAB')"
     elif command -v netstat >/dev/null 2>&1; then
-        count="$(netstat -tnp 2>/dev/null | grep -c ':22.*ESTABLISHED' || echo 0)"
+        count="$(netstat -tnp 2>/dev/null | grep -c ':22.*ESTABLISHED')"
     fi
-    echo "$count"
+    echo "${count:-0}"
 }
 
 tc_expired_users() {

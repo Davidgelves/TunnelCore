@@ -69,19 +69,6 @@ tc_module_protocols() {
     fi
 }
 
-tc_module_v2ray_users() {
-    if declare -f tc_v2ray_users_menu >/dev/null; then
-        tc_v2ray_users_menu
-    elif declare -f menu_usuarios_v2ray >/dev/null; then
-        menu_usuarios_v2ray
-    else
-        tc_clear
-        tc_title "ADMINISTRAR CUENTAS V2RAY/XRAY"
-        tc_msg_warn "Modulo de usuarios V2Ray/Xray no encontrado."
-        tc_pause
-    fi
-}
-
 tc_module_banner() {
     if declare -f tc_banner_menu >/dev/null; then
         tc_banner_menu
@@ -241,61 +228,23 @@ tc_main_menu() {
         tc_line
 
         # ── Opciones ──────────────────────────────────────────
-        tc_opt "1"  "ADMINISTRAR CUENTAS (SSH/DROPBEAR)"
-        if [[ -s /etc/SSHPlus/v2ray/configs.db || -x /usr/local/bin/xray ]]; then
-            tc_opt "2"  "ADMINISTRAR CUENTAS (V2RAY/XRAY)"
-            tc_line
-            tc_opt "3"  "$(_t 'menu_protocols')"
-            tc_opt "4"  "$(_t 'menu_banner')"
-            tc_opt "5"  "$(_t 'menu_limiter')" "  $(tc_limiter_status)"
-            tc_opt "6"  "$(_t 'menu_checkusers')"
-            tc_opt "7"  "$(_t 'menu_network')"
-            tc_opt "8"  "$(_t 'menu_vps')"
-            tc_opt "9"  "$(_t 'menu_settings')"
-            tc_opt "10" "$(_t 'menu_extras')"
-            tc_opt "11" "$(_t 'menu_reboot')"
-        else
-            tc_line
-            tc_opt "2"  "$(_t 'menu_protocols')"
-            tc_opt "3"  "$(_t 'menu_banner')"
-            tc_opt "4"  "$(_t 'menu_limiter')" "  $(tc_limiter_status)"
-            tc_opt "5"  "$(_t 'menu_checkusers')"
-            tc_opt "6"  "$(_t 'menu_network')"
-            tc_opt "7"  "$(_t 'menu_vps')"
-            tc_opt "8"  "$(_t 'menu_settings')"
-            tc_opt "9"  "$(_t 'menu_extras')"
-            tc_opt "10" "$(_t 'menu_reboot')"
-        fi
+        tc_opt "1"  "ADMINISTRAR CUENTAS (SSH/HYSTERIA)"
+        tc_line
+        tc_opt "2"  "$(_t 'menu_protocols')"
+        tc_opt "3"  "$(_t 'menu_banner')"
+        tc_opt "4"  "$(_t 'menu_limiter')" "  $(tc_limiter_status)"
+        tc_opt "5"  "$(_t 'menu_checkusers')"
+        tc_opt "6"  "$(_t 'menu_network')"
+        tc_opt "7"  "$(_t 'menu_vps')"
+        tc_opt "8"  "$(_t 'menu_settings')"
+        tc_opt "9"  "$(_t 'menu_extras')"
+        tc_opt "10" "$(_t 'menu_reboot')"
         tc_line
 
         tc_prompt
         read -r opcion
 
-        if [[ -s /etc/SSHPlus/v2ray/configs.db || -x /usr/local/bin/xray ]]; then
-            case "${opcion}" in
-            1|01) tc_module_users ;;
-            2|02) tc_module_v2ray_users ;;
-            3|03) tc_module_protocols ;;
-            4|04) tc_module_banner ;;
-            5|05) tc_module_limiter ;;
-            6|06) tc_module_checkusers ;;
-            7|07) tc_module_network ;;
-            8|08) tc_module_vps ;;
-            9|09) tc_module_settings ;;
-            10)   tc_module_extras ;;
-            11)   tc_reboot_vps ;;
-            0|00|q|Q)
-                tc_clear
-                tc_msg_ok "$(_t 'goodbye')"
-                exit 0
-                ;;
-            *)
-                tc_msg_err "$(_t 'invalid_option')"
-                sleep 1
-                ;;
-            esac
-        else
-            case "${opcion}" in
+        case "${opcion}" in
             1|01) tc_module_users ;;
             2|02) tc_module_protocols ;;
             3|03) tc_module_banner ;;
@@ -315,8 +264,7 @@ tc_main_menu() {
                 tc_msg_err "$(_t 'invalid_option')"
                 sleep 1
                 ;;
-            esac
-        fi
+        esac
     done
 }
 
