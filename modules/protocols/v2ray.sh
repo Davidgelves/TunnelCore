@@ -90,17 +90,19 @@ v2ray_require_jq() {
 v2ray_restart_service() {
     systemctl stop apache2 >/dev/null 2>&1 || true
     systemctl stop nginx >/dev/null 2>&1 || true
-    if systemctl is-active xray >/dev/null 2>&1; then
-        systemctl restart xray >/dev/null 2>&1
-    elif systemctl is-active v2ray >/dev/null 2>&1; then
-        systemctl restart v2ray >/dev/null 2>&1
-    elif command -v v2ray >/dev/null 2>&1; then
-        v2ray restart >/dev/null 2>&1
-    elif systemctl list-unit-files xray.service >/dev/null 2>&1; then
-        systemctl restart xray >/dev/null 2>&1
-    elif systemctl list-unit-files v2ray.service >/dev/null 2>&1; then
-        systemctl restart v2ray >/dev/null 2>&1
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    if [[ -f /etc/systemd/system/xray.service ]]; then
+        systemctl enable xray >/dev/null 2>&1 || true
+        systemctl restart xray >/dev/null 2>&1 || true
     fi
+    if [[ -f /etc/systemd/system/v2ray.service || -f /lib/systemd/system/v2ray.service ]]; then
+        systemctl enable v2ray >/dev/null 2>&1 || true
+        systemctl restart v2ray >/dev/null 2>&1 || true
+    fi
+    if command -v v2ray >/dev/null 2>&1; then
+        v2ray restart >/dev/null 2>&1 || true
+    fi
+    sleep 0.5
 }
 
 v2ray_valid_uuid() {
@@ -174,7 +176,7 @@ instalar_nucleo_directo() {
     local init_user="admin"
     local init_exp="$(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || echo '2030-01-01')"
 
-    # Certificados SSL para TLS 443
+    # Certificados SSL para TLS
     mkdir -p /etc/tunnelcore/v2ray
     if [[ ! -f /etc/tunnelcore/v2ray/server.crt || ! -f /etc/tunnelcore/v2ray/server.key ]]; then
         openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
@@ -190,7 +192,7 @@ instalar_nucleo_directo() {
   "inbounds": [
     {
       "tag": "vmess-ws-http",
-      "port": 80,
+      "port": 8443,
       "listen": "0.0.0.0",
       "protocol": "vmess",
       "settings": {
@@ -226,35 +228,6 @@ instalar_nucleo_directo() {
       "streamSettings": {
         "network": "ws",
         "security": "none",
-        "wsSettings": {
-          "path": "/tunnelcore"
-        }
-      }
-    },
-    {
-      "tag": "vmess-ws-tls",
-      "port": 443,
-      "listen": "0.0.0.0",
-      "protocol": "vmess",
-      "settings": {
-        "clients": [
-          {
-            "id": "${init_uuid}",
-            "alterId": 0
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": {
-          "certificates": [
-            {
-              "certificateFile": "/etc/tunnelcore/v2ray/server.crt",
-              "keyFile": "/etc/tunnelcore/v2ray/server.key"
-            }
-          ]
-        },
         "wsSettings": {
           "path": "/tunnelcore"
         }
@@ -615,8 +588,8 @@ addusr() {
     mapfile -t v2_ports < <(jq -r '.inbounds[]? | select((.settings.clients? | type) == "array") | .port' "$cfg" 2>/dev/null | sed '/^$/d' | sort -n | uniq)
     local selected_port="" selected_ports_disp="" apply_all=false
     if [[ "${#v2_ports[@]}" -eq 0 ]]; then
-        printf '%bPUERTO V2RAY (ej: 80, 443, 8080):%b ' "$TC_DARK_GREEN" "$TC_NC" && read -r selected_port
-        [[ -z "$selected_port" ]] && selected_port="80"
+        printf '%bPUERTO V2RAY (ej: 8443, 8080):%b ' "$TC_DARK_GREEN" "$TC_NC" && read -r selected_port
+        [[ -z "$selected_port" ]] && selected_port="8443"
         selected_ports_disp="$selected_port"
     elif [[ "${#v2_ports[@]}" -eq 1 ]]; then
         selected_port="${v2_ports[0]}"
@@ -805,7 +778,7 @@ addusr() {
     v2ray_restart_service
 
     # 9. Generar Enlace URI
-    local path_ws="$(jq -r --argjson p "${selected_port:-80}" '.inbounds[]? | select(.port == $p) | .streamSettings.wsSettings.path // .streamSettings.xhttpSettings.path // ""' "$cfg" 2>/dev/null)"
+    local path_ws="$(jq -r --argjson p "${selected_port:-8443}" '.inbounds[]? | select(.port == $p) | .streamSettings.wsSettings.path // .streamSettings.xhttpSettings.path // ""' "$cfg" 2>/dev/null)"
     [[ -z "$path_ws" || "$path_ws" == "null" ]] && path_ws="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // .inbounds[0].streamSettings.xhttpSettings.path // "/v2ray"' "$cfg" 2>/dev/null)"
     [[ -z "$path_ws" || "$path_ws" == "null" ]] && path_ws="/v2ray"
 
@@ -1128,13 +1101,18 @@ tc_xray_menu() {
     while true; do
         tc_clear
         v2ray_title "GESTIÓN DE V2RAY"
+        local cfg="$(v2ray_config_file)"
         local v2ray_running=0
         if v2ray_service_running; then
             v2ray_running=1
         fi
 
-        if [[ "$v2ray_running" = "1" ]]; then
-            printf '%bSERVICIO:%b %bV2RAY%b %b[ACTIVADO]%b\n' "$SSHPLUS_DARK_GREEN" "$SCOLOR" "$TC_YELLOW" "$SCOLOR" "$TC_GREEN" "$SCOLOR"
+        if [[ -n "$cfg" ]]; then
+            if [[ "$v2ray_running" = "1" ]]; then
+                printf '%bSERVICIO:%b %bV2RAY%b %b[ACTIVADO]%b\n' "$SSHPLUS_DARK_GREEN" "$SCOLOR" "$TC_YELLOW" "$SCOLOR" "$TC_GREEN" "$SCOLOR"
+            else
+                printf '%bSERVICIO:%b %bV2RAY%b %b[DESACTIVADO]%b\n' "$SSHPLUS_DARK_GREEN" "$SCOLOR" "$TC_YELLOW" "$SCOLOR" "$TC_RED" "$SCOLOR"
+            fi
             v2ray_line
             v2ray_opt "1" "ADMINISTRAR USUARIOS V2RAY"
             v2ray_opt "2" "CONFIGURACIÓN DE V2RAY"
@@ -1154,7 +1132,7 @@ tc_xray_menu() {
         printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR"
         read -r x
 
-        if [[ "$v2ray_running" != "1" ]]; then
+        if [[ -z "$cfg" ]]; then
             case "$x" in
                 1|01) intallv2ray ;;
                 0|00) break ;;
