@@ -41,7 +41,7 @@ linea_v2ray() {
 
 v2ray_config_file() {
     local cfg
-    for cfg in /usr/local/etc/xray/config.json /etc/v2ray/config.json /etc/tunnelcore/v2ray/config.json /usr/local/etc/v2ray/config.json /etc/xray/config.json; do
+    for cfg in /etc/v2ray/config.json /usr/local/etc/v2ray/config.json /usr/local/etc/xray/config.json /etc/xray/config.json /etc/tunnelcore/v2ray/config.json; do
         [[ -f "$cfg" ]] && echo "$cfg" && return 0
     done
     return 1
@@ -172,6 +172,8 @@ instalar_nucleo_directo() {
         unzip -q -o "${tmp_dir}/xray.zip" -d "$tmp_dir" >/dev/null 2>&1 || true
         if [[ -f "${tmp_dir}/xray" ]]; then
             install -m 755 "${tmp_dir}/xray" /usr/local/bin/xray
+            ln -sf /usr/local/bin/xray /usr/local/bin/v2ray-core 2>/dev/null || true
+            ln -sf /usr/local/bin/xray /usr/bin/v2ray 2>/dev/null || true
         fi
     fi
     rm -rf "$tmp_dir"
@@ -246,7 +248,8 @@ instalar_nucleo_directo() {
 }
 EOF
 
-    ln -sf /usr/local/etc/xray/config.json /etc/v2ray/config.json 2>/dev/null || cp -f /usr/local/etc/xray/config.json /etc/v2ray/config.json 2>/dev/null || true
+    mkdir -p /etc/v2ray
+    cp -f /usr/local/etc/xray/config.json /etc/v2ray/config.json 2>/dev/null || true
 
     cat > /etc/systemd/system/xray.service <<EOF
 [Unit]
@@ -255,7 +258,7 @@ After=network.target nss-lookup.target
 
 [Service]
 User=root
-ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+ExecStart=/usr/local/bin/xray run -config /etc/v2ray/config.json
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=1048576
@@ -274,65 +277,83 @@ EOF
     fi
 }
 
-# ── Instalador V2Ray Interactivo ──────────────────────────────
+# ── Instalador V2Ray 1:1 Rufus ────────────────────────────────
 intallv2ray() {
     tc_clear
     v2ray_title "INSTALADOR V2RAY"
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update -y >/dev/null 2>&1 || true
-        apt-get install -y curl wget unzip ca-certificates jq uuid-runtime openssl python3 python3-pip python3-setuptools >/dev/null 2>&1 || true
+        apt-get install -y python3 python3-pip python3-setuptools curl wget unzip ca-certificates jq uuid-runtime openssl socat cron gawk ntpdate >/dev/null 2>&1 || true
     fi
 
-    # 1. Elegir Protocolo
-    echo ""
-    v2ray_title "ELIJA EL PROTOCOLO V2RAY"
-    v2ray_opt "1" "VMess (WebSocket / Universal)"
-    v2ray_opt "2" "VLESS (WebSocket / Ligero)"
-    v2ray_line
-    local proto_opt proto_name="VMess" proto_tag="vmess"
-    while true; do
-        printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR" && read -r proto_opt
-        case "$proto_opt" in
-            1) proto_name="VMess"; proto_tag="vmess"; break ;;
-            2) proto_name="VLESS"; proto_tag="vless"; break ;;
-            *) echo -e "\033[1;31mOpción no válida!\033[0m" ;;
-        esac
-    done
+    # Corregir pip si es Python 3.8 para que no falle multi-v2ray
+    if python3 -c 'import sys; exit(0 if sys.version_info < (3, 9) else 1)' 2>/dev/null; then
+        curl -fsSL https://bootstrap.pypa.io/pip/3.8/get-pip.py | python3 >/dev/null 2>&1 || true
+    fi
+    pip3 install --upgrade setuptools wheel v2ray_util >/dev/null 2>&1 || true
 
-    # 2. Indicar Puerto
-    echo ""
-    linea_v2ray
-    v2ray_title "INDIQUE EL PUERTO V2RAY"
-    local port
-    while true; do
-        printf '%bINDIQUE EL PUERTO V2RAY [ej: 8443, 8080, 443, 80]:%b ' "$SSHPLUS_DARK_GREEN" "$SCOLOR"
-        read -r port
-        [[ -z "$port" ]] && port="8443"
-        if ! v2ray_valid_port "$port"; then
-            echo -e "\033[1;31mPuerto no válido. Use un número entre 1 y 65535.\033[0m"
-            continue
-        fi
-        break
-    done
+    echo -e "\033[1;32m[✓] Descargando e iniciando instalador Multi-V2Ray...\033[0m"
+    source <(curl -sL https://multi.netlify.app/v2ray.sh) -k 2>/dev/null || bash <(curl -sL https://raw.githubusercontent.com/Jrohy/multi-v2ray/master/v2ray.sh) 2>/dev/null || true
 
-    # 3. Indicar Path
-    echo ""
-    linea_v2ray
-    printf '%bPATH WEBSOCKET [Enter = /tunnelcore]:%b ' "$SSHPLUS_DARK_GREEN" "$SCOLOR"
-    local path
-    read -r path
-    [[ -z "$path" ]] && path="/tunnelcore"
-    [[ "$path" != /* ]] && path="/$path"
-
-    echo ""
-    echo -e "\033[1;32m[✓] Configurando V2Ray ($proto_name en puerto $port con path $path)...\033[0m"
-    instalar_nucleo_directo "$proto_tag" "$port" "$path"
-
-    mkdir -p /etc/SSHPlus /etc/tunnelcore/v2ray
+    mkdir -p /etc/SSHPlus /etc/tunnelcore/v2ray /etc/v2ray
     local USRdatabase="/etc/SSHPlus/RegV2ray"
     [[ ! -e ${USRdatabase} ]] && touch ${USRdatabase}
     sort ${USRdatabase} | uniq > "${USRdatabase}tmp"
     mv -f "${USRdatabase}tmp" "${USRdatabase}"
+
+    tc_clear
+    if command -v v2ray >/dev/null 2>&1; then
+        v2ray_title "ELIJA EL PROTOCOLO V2RAY"
+        v2ray stream
+        tc_clear
+        linea_v2ray
+        v2ray_title "INDIQUE EL PUERTO V2RAY [8443] o [443]"
+        v2ray port
+        tc_clear
+    else
+        # Si el script externo no dejó comando v2ray, ejecutar configurador interactivo directo
+        echo ""
+        v2ray_title "ELIJA EL PROTOCOLO V2RAY"
+        v2ray_opt "1" "VMess (WebSocket / Universal)"
+        v2ray_opt "2" "VLESS (WebSocket / Ligero)"
+        v2ray_line
+        local proto_opt proto_name="VMess" proto_tag="vmess"
+        while true; do
+            printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR" && read -r proto_opt
+            case "$proto_opt" in
+                1) proto_name="VMess"; proto_tag="vmess"; break ;;
+                2) proto_name="VLESS"; proto_tag="vless"; break ;;
+                *) echo -e "\033[1;31mOpción no válida!\033[0m" ;;
+            esac
+        done
+
+        echo ""
+        linea_v2ray
+        v2ray_title "INDIQUE EL PUERTO V2RAY"
+        local port
+        while true; do
+            printf '%bINDIQUE EL PUERTO V2RAY [ej: 8443, 8080, 443, 80]:%b ' "$SSHPLUS_DARK_GREEN" "$SCOLOR"
+            read -r port
+            [[ -z "$port" ]] && port="8443"
+            if ! v2ray_valid_port "$port"; then
+                echo -e "\033[1;31mPuerto no válido. Use un número entre 1 y 65535.\033[0m"
+                continue
+            fi
+            break
+        done
+
+        echo ""
+        linea_v2ray
+        printf '%bPATH WEBSOCKET [Enter = /tunnelcore]:%b ' "$SSHPLUS_DARK_GREEN" "$SCOLOR"
+        local path
+        read -r path
+        [[ -z "$path" ]] && path="/tunnelcore"
+        [[ "$path" != /* ]] && path="/$path"
+
+        echo ""
+        echo -e "\033[1;32m[✓] Configurando V2Ray ($proto_name en puerto $port con path $path)...\033[0m"
+        instalar_nucleo_directo "$proto_tag" "$port" "$path"
+    fi
 
     local config_v2ray="$(v2ray_config_file)"
     if [[ -n "$config_v2ray" ]]; then
