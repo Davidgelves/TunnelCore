@@ -65,7 +65,7 @@ tc_banner_delete() {
     tc_pause
 }
 
-# ── Pegar Banner Personalizado en Terminal (Directo y Automático) ──
+# ── Pegar Banner Personalizado en Terminal (Directo vía /dev/tty) ──
 tc_banner_paste_custom() {
     tc_clear
     tc_title "AGREGAR BANNER PERSONALIZADO"
@@ -73,36 +73,35 @@ tc_banner_paste_custom() {
     local tmp_file="/tmp/tc_banner_tmp_$$.html"
     rm -f "$tmp_file"
 
-    python3 - "$tmp_file" <<'PYEOF'
+    python3 -c '
 import sys, os, select
 
-out_file = sys.argv[1]
+try:
+    tty = open("/dev/tty", "r", encoding="utf-8", errors="replace")
+except Exception:
+    tty = sys.stdin
 
 print("\033[1;33mPegue su código HTML o texto de Banner a continuación y presione Enter:\033[0m\n")
 
 lines = []
-try:
-    first_line = sys.stdin.readline()
-    if first_line:
-        lines.append(first_line)
-        # Capturar todo el portapapeles restante
-        while select.select([sys.stdin], [], [], 0.3)[0]:
-            extra = sys.stdin.readline()
-            if not extra:
-                break
-            lines.append(extra)
-except Exception:
-    pass
+first = tty.readline()
+if first and first.strip():
+    lines.append(first)
+    while select.select([tty], [], [], 0.3)[0]:
+        extra = tty.readline()
+        if not extra:
+            break
+        lines.append(extra)
 
 content = "".join(lines).strip()
 if not content:
     sys.exit(2)
 
-with open(out_file, "w", encoding="utf-8") as f:
+with open(sys.argv[1], "w", encoding="utf-8") as f:
     f.write(content + "\n")
 
 sys.exit(0)
-PYEOF
+' "$tmp_file"
 
     local ret=$?
     if [[ $ret -ne 0 || ! -s "$tmp_file" ]]; then
@@ -122,7 +121,7 @@ PYEOF
     tc_opt "0" "CANCELAR"
     tc_line
     tc_prompt
-    read -r choice
+    read -r choice < /dev/tty
     choice="$(echo "$choice" | tr -d '\r\n[:space:]')"
 
     case "$choice" in
