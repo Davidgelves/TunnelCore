@@ -65,38 +65,69 @@ tc_banner_delete() {
     tc_pause
 }
 
-# ── Pegar Banner Personalizado ────────────────────────────────
+# ── Pegar Banner Personalizado con Confirmación / Cancelar ────
 tc_banner_paste_custom() {
-    tc_clear
-    tc_title "PEGAR BANNER PERSONALIZADO"
-
-    printf '%bInstrucciones:%b\n' "$TC_YELLOW" "$TC_NC"
-    printf ' 1. Copie su código HTML o texto.\n'
-    printf ' 2. Péguelo aquí en la terminal (Clic derecho o Ctrl+Shift+V).\n'
-    printf ' 3. Para guardar, escriba %bFIN%b en una línea vacía o presione %bCtrl+D%b.\n' "$TC_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC"
-    tc_line
-    printf '%b--- COMIENCE A PEGAR A CONTINUACIÓN ---%b\n' "$TC_CYAN" "$TC_NC"
-
     local tmp_banner="/tmp/banner_input_$$"
-    > "$tmp_banner"
 
-    while IFS= read -r line; do
-        [[ "$line" == "FIN" || "$line" == "fin" ]] && break
-        echo "$line" >> "$tmp_banner"
-    done
+    while true; do
+        tc_clear
+        tc_title "PEGAR BANNER PERSONALIZADO"
 
-    if [[ -s "$tmp_banner" ]]; then
-        mkdir -p "/etc/tunnelcore"
-        cp -f "$tmp_banner" "$TC_BANNER_FILE"
-        rm -f "$tmp_banner"
-        tc_banner_apply
+        printf '%bInstrucciones:%b\n' "$TC_YELLOW" "$TC_NC"
+        printf ' 1. Copie su código HTML o texto.\n'
+        printf ' 2. Péguelo aquí en la terminal (Clic derecho o Ctrl+Shift+V).\n'
+        printf ' 3. Para terminar de pegar, escriba %bFIN%b en una línea vacía o presione %bCtrl+D%b.\n' "$TC_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC"
+        tc_line
+        printf '%b--- COMIENCE A PEGAR A CONTINUACIÓN ---%b\n' "$TC_CYAN" "$TC_NC"
+
+        > "$tmp_banner"
+
+        while IFS= read -r line; do
+            [[ "$line" == "FIN" || "$line" == "fin" ]] && break
+            echo "$line" >> "$tmp_banner"
+        done
+
+        if [[ ! -s "$tmp_banner" ]]; then
+            rm -f "$tmp_banner"
+            tc_msg_warn "No se ingresó ningún texto."
+            tc_pause
+            return
+        fi
+
+        # Mostrar vista previa y preguntar si desea Guardar o Cancelar
+        tc_clear
+        tc_title "VISTA PREVIA DEL BANNER PEGADO"
+        cat "$tmp_banner"
         echo ""
-        tc_msg_ok "¡Banner personalizado guardado y aplicado con éxito!"
-    else
-        rm -f "$tmp_banner"
-        tc_msg_warn "No se ingresó ningún texto. Banner no modificado."
-    fi
-    tc_pause
+        tc_line
+        tc_opt "1" "GUARDAR Y APLICAR BANNER"
+        tc_opt "2" "VOLVER A PEGAR"
+        tc_opt "0" "CANCELAR Y DESCARTAR"
+        tc_line
+        tc_prompt
+        read -r choice
+
+        case "$choice" in
+            1|01)
+                mkdir -p "/etc/tunnelcore"
+                cp -f "$tmp_banner" "$TC_BANNER_FILE"
+                rm -f "$tmp_banner"
+                tc_banner_apply
+                tc_msg_ok "¡Banner guardado y aplicado con éxito!"
+                tc_pause
+                return
+                ;;
+            2|02)
+                continue
+                ;;
+            0|00|*)
+                rm -f "$tmp_banner"
+                tc_msg_warn "Operación cancelada. El banner no se modificó."
+                tc_pause
+                return
+                ;;
+        esac
+    done
 }
 
 tc_banner_menu() {
