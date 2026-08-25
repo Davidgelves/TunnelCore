@@ -2859,6 +2859,45 @@ EOF
     menu_usuarios_v2ray
     }
 
+    renewusr() {
+    clear
+    v2ray_title "RENOVAR USUARIO V2RAY/XRAY"
+    [[ ! -s /etc/SSHPlus/RegV2ray ]] && echo -e "\033[1;31mNo hay usuarios V2RAY registrados.\033[0m" && pausa_v2ray && menu_usuarios_v2ray
+    local uuid_list user_list line_list user_sel days new_date
+    mapfile -t uuid_list < <(awk -F'|' '{gsub(/^ +| +$/,"",$1); if($1!="") print $1}' /etc/SSHPlus/RegV2ray)
+    mapfile -t user_list < <(awk -F'|' '{gsub(/^ +| +$/,"",$2); if($1!="") print $2}' /etc/SSHPlus/RegV2ray)
+    mapfile -t line_list < <(awk -F'|' '{gsub(/^ +| +$/,"",$1); if($1!="") print NR}' /etc/SSHPlus/RegV2ray)
+    for i in "${!uuid_list[@]}"; do
+    v2ray_opt "$((i+1))" "${user_list[$i]} | ${uuid_list[$i]}"
+    done
+    v2ray_line
+    v2ray_opt "0" "CANCELAR"
+    v2ray_line
+    echo -ne "${SSHPlus_CYAN}Opcion:${SCOLOR} "
+    read user_sel
+    [[ "$user_sel" = "0" ]] && menu_usuarios_v2ray && return
+    if [[ ! "$user_sel" =~ ^[0-9]+$ || "$user_sel" -lt 1 || "$user_sel" -gt "${#uuid_list[@]}" ]]; then
+    echo -e "\033[1;31mOpcion no valida!\033[0m"
+    pausa_v2ray
+    menu_usuarios_v2ray
+    return
+    fi
+    echo -ne "${SSHPlus_DARK_GREEN}NUEVOS DIAS:${SCOLOR} "
+    read days
+    [[ -z "$days" ]] && days="30"
+    if [[ ! "$days" =~ ^[0-9]+$ ]]; then
+    echo -e "\033[1;31mDias no validos.\033[0m"
+    pausa_v2ray
+    menu_usuarios_v2ray
+    return
+    fi
+    new_date="$(date '+%Y-%m-%d' -d "+${days} days" 2>/dev/null || date '+%Y-%m-%d')"
+    sed -i "${line_list[$((user_sel-1))]}s#|[^|]*\$#| $new_date #" /etc/SSHPlus/RegV2ray
+    echo -e "\033[1;32mUsuario renovado hasta: \033[1;37m$new_date\033[0m"
+    pausa_v2ray
+    menu_usuarios_v2ray
+    }
+
     menu_xray_xhttp() {
     clear
     if ! xhttp_is_installed; then
@@ -2903,14 +2942,13 @@ EOF
     menu_usuarios_v2ray() {
         while true; do
             clear
-            v2ray_title "ADMINISTRAR USUARIOS V2RAY"
-            v2ray_opt "1" "ANADIR USUARIO | UUID"
-            v2ray_opt "2" "ELIMINAR USUARIO V2RAY"
-            v2ray_opt "3" "USUARIOS REGISTRADOS"
-            v2ray_opt "4" "INFORMACION DE CUENTA"
-            v2ray_opt "5" "LIMITAR MB POR PUERTO / UUID"
-            v2ray_opt "6" "ESTADISTICAS DE CONSUMO"
-            v2ray_opt "7" "LIMPIAR USUARIOS EXPIRADOS"
+            v2ray_title "ADMINISTRADOR DE USUARIOS V2RAY/XRAY"
+            v2ray_opt "1" "AGREGAR USUARIO"
+            v2ray_opt "2" "ELIMINAR USUARIO"
+            v2ray_opt "3" "RENOVAR USUARIO"
+            v2ray_opt "4" "INFORMACION DE USUARIO"
+            v2ray_opt "5" "CAMBIAR UID"
+            v2ray_opt "6" "CAMBIAR PATH"
             v2ray_line
             v2ray_opt "0" "VOLVER"
             v2ray_line
@@ -2921,11 +2959,10 @@ EOF
             case "$usropt" in
                 1 | 01) addusr ;;
                 2 | 02) delusr ;;
-                3 | 03) mosusr_kk ;;
-                4 | 04) infocuenta ;;
-                5 | 05) lim_port ;;
-                6 | 06) stats ;;
-                7 | 07) limpiador_activador ;;
+                3 | 03) renewusr ;;
+                4 | 04) mosusr_kk ;;
+                5 | 05) modificar_uuid_v2ray ;;
+                6 | 06) modificar_path_v2ray ;;
                 0 | 00) break ;;
                 *) echo -e "\033[1;31mOpcion no valida!\033[0m"; sleep 1 ;;
             esac
@@ -2999,30 +3036,32 @@ EOF
 
             [[ "$service_on" = "1" ]] && toggle_status="ON" || toggle_status="OFF"
             v2ray_title "CONFIGURACION V2RAY / XRAY"
-            v2ray_opt "1" "AGREGAR PROTOCOLO V2RAY/XRAY"
-            v2ray_opt "2" "QUITAR PROTOCOLO V2RAY/XRAY"
-            v2ray_opt "3" "VER CONFIGURACION JSON"
-            v2ray_opt "4" "EDITAR CONFIGURACION JSON (nano)"
-            v2ray_opt "5" "ESTADO DEL SERVICIO"
-            v2ray_opt "6" "REINICIAR SERVICIO"
-            v2ray_opt "7" "INICIAR/DETENER SERVICIO [$toggle_status]"
-            v2ray_opt "8" "VOLVER A CONFIGURAR"
-            v2ray_opt "9" "DESINTALAR V2RAY"
+            v2ray_opt "1" "ADMINISTRADOR DE USUARIOS V2RAY/XRAY"
+            v2ray_opt "2" "AGREGAR PROTOCOLO V2RAY/XRAY"
+            v2ray_opt "3" "QUITAR PROTOCOLO V2RAY/XRAY"
+            v2ray_opt "4" "VER CONFIGURACION JSON"
+            v2ray_opt "5" "EDITAR CONFIGURACION JSON (nano)"
+            v2ray_opt "6" "ESTADO DEL SERVICIO"
+            v2ray_opt "7" "REINICIAR SERVICIO"
+            v2ray_opt "8" "INICIAR/DETENER SERVICIO [$toggle_status]"
+            v2ray_opt "9" "VOLVER A CONFIGURAR"
+            v2ray_opt "10" "DESINTALAR V2RAY"
             v2ray_opt "0" "VOLVER"
             v2ray_line
             echo -ne "${SSHPlus_CYAN}Opcion:${SCOLOR} "
             read x
             clear
             case $x in
-            1 | 01) crear_protocolo_v2ray ;;
-            2 | 02) v2ray_delete_protocol ;;
-            3 | 03) v2ray_show_port_json ;;
-            4 | 04) v2ray_edit_port_json ;;
-            5 | 05) v2ray_services_status ;;
-            6 | 06) v2ray_restart_all_services ;;
-            7 | 07) v2ray_toggle_all_services ;;
-            8 | 08) crear_protocolo_v2ray ;;
-            9 | 09) unistallv2 ;;
+            1 | 01) menu_usuarios_v2ray ;;
+            2 | 02) crear_protocolo_v2ray ;;
+            3 | 03) v2ray_delete_protocol ;;
+            4 | 04) v2ray_show_port_json ;;
+            5 | 05) v2ray_edit_port_json ;;
+            6 | 06) v2ray_services_status ;;
+            7 | 07) v2ray_restart_all_services ;;
+            8 | 08) v2ray_toggle_all_services ;;
+            9 | 09) crear_protocolo_v2ray ;;
+            10) unistallv2 ;;
             0 | 00) break ;;
             *) echo -e "\033[1;31mOpcion no valida!\033[0m"; sleep 2 ;;
             esac
