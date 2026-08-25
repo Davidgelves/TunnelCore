@@ -187,7 +187,7 @@ tc_xray_write_base_config() {
 }
 EOF
 
-    echo "admin | ${init_uuid} | $(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || echo '2030-01-01') | multi" > "$TC_XRAY_USERS"
+    echo "admin | ${init_uuid} | $(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || echo '2030-01-01') | universal" > "$TC_XRAY_USERS"
     chmod 600 "$TC_XRAY_CONF" "$TC_XRAY_USERS"
 }
 
@@ -388,6 +388,84 @@ EOF
     tc_pause
 }
 
+# ── Modificar UUID de una cuenta ──────────────────────────────
+tc_xray_modify_uuid() {
+    tc_clear
+    tc_title "MODIFICAR UUID DE CUENTA V2RAY"
+
+    if [[ ! -f "$TC_XRAY_USERS" || ! -s "$TC_XRAY_USERS" ]]; then
+        tc_msg_warn "No hay cuentas registradas."
+        tc_pause
+        return
+    fi
+
+    local -a users_arr=() uuids_arr=() exps_arr=()
+    local idx=0 u_line
+    while IFS='|' read -r nick uuid exp proto || [[ -n "$nick" ]]; do
+        nick="$(echo "$nick" | tr -d ' ')"
+        uuid="$(echo "$uuid" | tr -d ' ')"
+        exp="$(echo "$exp" | tr -d ' ')"
+        [[ -z "$nick" ]] && continue
+        users_arr+=("$nick")
+        uuids_arr+=("$uuid")
+        exps_arr+=("$exp")
+        idx=$((idx + 1))
+        tc_opt "$idx" "${nick} (${uuid})"
+    done < "$TC_XRAY_USERS"
+
+    tc_line
+    tc_opt "0" "$(_t 'cancel')"
+    tc_line
+    tc_prompt "Seleccione usuario para modificar UUID"
+    read -r sel
+
+    [[ "$sel" == "0" || -z "$sel" ]] && return
+
+    if ! [[ "$sel" =~ ^[0-9]+$ ]] || (( sel < 1 || sel > ${#users_arr[@]} )); then
+        tc_msg_err "Opción no válida."
+        tc_pause
+        return
+    fi
+
+    local sel_idx=$((sel - 1))
+    local sel_user="${users_arr[$sel_idx]}"
+    local old_uuid="${uuids_arr[$sel_idx]}"
+    local sel_exp="${exps_arr[$sel_idx]}"
+
+    printf '\n%bUsuario seleccionado:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$sel_user" "$TC_NC"
+    printf '%bUUID Actual:%b %b%s%b\n\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "$old_uuid" "$TC_NC"
+
+    printf '%bNuevo UUID (Enter para generar uno nuevo automáticamente):%b ' "$TC_DARK_GREEN" "$TC_NC"
+    read -r new_uuid
+    [[ -z "$new_uuid" ]] && new_uuid="$(tc_gen_uuid)"
+
+    if ! [[ "$new_uuid" =~ ^[a-f0-9-]{36}$ ]]; then
+        tc_msg_err "Formato de UUID inválido."
+        tc_pause
+        return
+    fi
+
+    # Reemplazar en config.json
+    local tmp_json="${TC_XRAY_CONF}.tmp"
+    jq --arg old "$old_uuid" --arg new "$new_uuid" '
+      .inbounds |= map(
+        if ((.settings.clients? | type) == "array") then
+          .settings.clients |= map(if .id == $old then .id = $new else . end)
+        else
+          .
+        end
+      )
+    ' "$TC_XRAY_CONF" > "$tmp_json" && mv "$tmp_json" "$TC_XRAY_CONF"
+
+    # Actualizar en users.db
+    sed -i "s/${old_uuid}/${new_uuid}/g" "$TC_XRAY_USERS"
+    systemctl restart xray >/dev/null 2>&1
+
+    tc_msg_ok "UUID actualizado con éxito para '$sel_user'."
+    printf '%bNuevo UUID:%b %b%s%b\n\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$new_uuid" "$TC_NC"
+    tc_pause
+}
+
 # ── Listar cuentas Xray ───────────────────────────────────────
 tc_xray_list_users() {
     tc_clear
@@ -493,14 +571,15 @@ tc_xray_menu() {
                 "$TC_DARK_GREEN" "$TC_NC" "$(tc_xray_status_mark)"
             tc_line
             tc_opt "1" "AÑADIR CUENTA (UNIVERSAL: VMESS + VLESS)"
-            tc_opt "2" "LISTAR CUENTAS"
-            tc_opt "3" "ELIMINAR CUENTA"
+            tc_opt "2" "LISTAR CUENTAS REGISTRADAS"
+            tc_opt "3" "MODIFICAR UUID DE UNA CUENTA"
+            tc_opt "4" "ELIMINAR CUENTA"
             tc_line
-            tc_opt "4" "CAMBIAR DOMINIO CDN / HOST"
-            tc_opt "5" "REINICIAR SERVICIO XRAY"
-            tc_opt "6" "VER LOGS EN TIEMPO REAL"
-            tc_opt "7" "REINSTALAR XRAY"
-            tc_opt "8" "DESINSTALAR XRAY"
+            tc_opt "5" "CAMBIAR DOMINIO CDN / HOST"
+            tc_opt "6" "REINICIAR SERVICIO XRAY"
+            tc_opt "7" "VER LOGS EN TIEMPO REAL"
+            tc_opt "8" "REINSTALAR XRAY"
+            tc_opt "9" "DESINSTALAR XRAY"
             tc_line
             tc_opt "0" "$(_t 'back')"
             tc_line
@@ -510,8 +589,9 @@ tc_xray_menu() {
             case "$opt" in
                 1|01) tc_xray_add_user ;;
                 2|02) tc_xray_list_users ;;
-                3|03) tc_xray_del_user ;;
-                4|04)
+                3|03) tc_xray_modify_uuid ;;
+                4|04) tc_xray_del_user ;;
+                5|05)
                     printf '%bNuevo Dominio CDN:%b ' "$TC_DARK_GREEN" "$TC_NC"
                     read -r nd
                     if [[ -n "$nd" ]]; then
@@ -520,20 +600,20 @@ tc_xray_menu() {
                     fi
                     tc_pause
                     ;;
-                5|05)
+                6|06)
                     systemctl restart xray >/dev/null 2>&1
                     tc_msg_ok "Servicio Xray reiniciado."
                     tc_pause
                     ;;
-                6|06)
+                7|07)
                     tc_clear
                     tc_title "LOGS XRAY EN VIVO (Ctrl+C para salir)"
                     journalctl -u xray -f --no-pager
                     ;;
-                7|07)
+                8|08)
                     tc_xray_install
                     ;;
-                8|08)
+                9|09)
                     if tc_confirm "¿Está seguro de desinstalar Xray por completo?"; then
                         systemctl stop xray >/dev/null 2>&1 || true
                         systemctl disable xray >/dev/null 2>&1 || true
