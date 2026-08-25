@@ -1,594 +1,832 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 #  TunnelCore — modules/protocols/v2ray.sh
-#  Gestor de V2Ray / Xray Oficial (Configuración desde Cero)
+#  Gestión Avanzada de V2Ray / Xray (1:1 con Rufus / NoxuraSSH)
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
 
-TC_V2_DIR="/etc/tunnelcore/v2ray"
-TC_V2_CONF="${TC_V2_DIR}/config.json"
-TC_V2_REG="${TC_V2_DIR}/users.db"
-TC_V2_ENV="${TC_V2_DIR}/v2ray.env"
-TC_V2_CERT="${TC_V2_DIR}/server.crt"
-TC_V2_KEY="${TC_V2_DIR}/server.key"
-TC_V2_BIN="/usr/local/bin/xray"
-TC_V2_SERVICE="/etc/systemd/system/xray.service"
+SSHPLUS_NUM="$TC_GREEN"
+SSHPLUS_CYAN="$TC_CYAN"
+SSHPLUS_DARK_GREEN="$TC_DARK_GREEN"
+SCOLOR="$TC_NC"
 
-# ── Detección de Estado ───────────────────────────────────────
-tc_v2_config_file() {
+v2ray_resize() {
+    tc_resize
+}
+
+v2ray_line() {
+    tc_line
+}
+
+v2ray_title() {
+    tc_title "$1"
+}
+
+v2ray_opt() {
+    tc_opt "$1" "$2" "${3:-}"
+}
+
+v2ray_prompt() {
+    tc_prompt "$1"
+}
+
+pausa_v2ray() {
+    tc_pause
+}
+
+linea_v2ray() {
+    tc_line
+}
+
+v2ray_config_file() {
     local cfg
-    for cfg in "$TC_V2_CONF" /etc/v2ray/config.json /usr/local/etc/v2ray/config.json /usr/local/etc/xray/config.json /etc/xray/config.json; do
+    for cfg in /etc/tunnelcore/v2ray/config.json /etc/v2ray/config.json /usr/local/etc/v2ray/config.json /usr/local/etc/xray/config.json /etc/xray/config.json; do
         [[ -f "$cfg" ]] && echo "$cfg" && return 0
     done
     return 1
 }
 
-tc_v2_is_installed() {
-    [[ -x "$TC_V2_BIN" && -f "$TC_V2_CONF" ]] || command -v v2ray >/dev/null 2>&1
+v2ray_ensure_legacy_config() {
+    local cfg="$1"
+    [[ -z "$cfg" || "$cfg" == "/etc/v2ray/config.json" ]] && return 0
+    mkdir -p /etc/v2ray /etc/tunnelcore/v2ray
+    ln -sf "$cfg" /etc/v2ray/config.json 2>/dev/null || cp -f "$cfg" /etc/v2ray/config.json 2>/dev/null || true
 }
 
-tc_v2_is_running() {
-    systemctl is-active --quiet xray 2>/dev/null || systemctl is-active --quiet v2ray 2>/dev/null || pgrep -x xray >/dev/null 2>&1 || pgrep -x v2ray >/dev/null 2>&1
+v2ray_service_running() {
+    systemctl is-active xray >/dev/null 2>&1 && return 0
+    systemctl is-active v2ray >/dev/null 2>&1 && return 0
+    pgrep -x xray >/dev/null 2>&1 && return 0
+    pgrep -x v2ray >/dev/null 2>&1 && return 0
+    ss -tunlp 2>/dev/null | grep -E 'v2ray|xray' >/dev/null 2>&1 && return 0
+    netstat -tunlp 2>/dev/null | grep -E 'v2ray|xray' >/dev/null 2>&1 && return 0
+    return 1
 }
 
-tc_v2_status_mark() {
-    if tc_v2_is_running; then
-        printf '%b[ON]%b' "$TC_GREEN" "$TC_NC"
-    elif tc_v2_is_installed; then
-        printf '%b[OFF]%b' "$TC_RED" "$TC_NC"
-    else
-        printf '%b[NO INSTALADO]%b' "$TC_YELLOW" "$TC_NC"
-    fi
-}
-
-tc_v2_load_env() {
-    V2_PROTO="multi"
-    V2_NETWORK="ws"
-    V2_HTTP_PORT="80"
-    V2_TLS_PORT="443"
-    V2_PATH="/tunnelcore"
-    V2_DOMAIN=""
-    V2_SNI=""
-    if [[ -f "$TC_V2_ENV" ]]; then
-        # shellcheck disable=SC1090
-        . "$TC_V2_ENV"
-    fi
-}
-
-tc_v2_save_env() {
-    mkdir -p "$TC_V2_DIR"
-    cat > "$TC_V2_ENV" <<EOF
-V2_PROTO="${V2_PROTO:-multi}"
-V2_NETWORK="${V2_NETWORK:-ws}"
-V2_HTTP_PORT="${V2_HTTP_PORT:-80}"
-V2_TLS_PORT="${V2_TLS_PORT:-443}"
-V2_PATH="${V2_PATH:-/tunnelcore}"
-V2_DOMAIN="${V2_DOMAIN:-}"
-V2_SNI="${V2_SNI:-}"
-EOF
-}
-
-tc_v2_ensure_certs() {
-    mkdir -p "$TC_V2_DIR"
-    if [[ ! -f "$TC_V2_CERT" || ! -f "$TC_V2_KEY" ]]; then
-        openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
-            -keyout "$TC_V2_KEY" -out "$TC_V2_CERT" -subj "/CN=tunnelcore-v2ray" >/dev/null 2>&1 || true
-        chmod 600 "$TC_V2_KEY" "$TC_V2_CERT" 2>/dev/null || true
-    fi
-}
-
-tc_v2_free_conflicts() {
-    # Desactivar servidores web residuales que puedan bloquear los puertos 80/443
-    systemctl stop apache2 >/dev/null 2>&1 || true
-    systemctl disable apache2 >/dev/null 2>&1 || true
-    systemctl stop nginx >/dev/null 2>&1 || true
-    systemctl disable nginx >/dev/null 2>&1 || true
-}
-
-tc_v2_restart() {
-    tc_v2_free_conflicts
-    systemctl daemon-reload >/dev/null 2>&1 || true
-    systemctl enable xray >/dev/null 2>&1 || true
-    systemctl restart xray >/dev/null 2>&1 || true
-    if command -v v2ray >/dev/null 2>&1; then
-        v2ray restart >/dev/null 2>&1 || true
-    fi
-    sleep 0.5
-}
-
-# ── Descargar Binario Oficial de V2Ray/Xray Core ───────────────
-tc_v2_install_core_bin() {
-    tc_require_cmd "curl" "curl"
-    tc_require_cmd "unzip" "unzip"
-    tc_require_cmd "jq" "jq"
-
-    local arch asset
-    arch="$(tc_detect_arch)"
-    case "$arch" in
-        amd64) asset="Xray-linux-64.zip" ;;
-        arm64) asset="Xray-linux-arm64-v8a.zip" ;;
-        arm)   asset="Xray-linux-arm32-v7a.zip" ;;
-        *)
-            tc_msg_err "Arquitectura no soportada para V2Ray: $arch"
-            return 1
-            ;;
-    esac
-
-    local xray_url="https://github.com/XTLS/Xray-core/releases/latest/download/${asset}"
-    local tmp_dir="/tmp/xray-install-$$"
-    mkdir -p "$tmp_dir"
-
-    tc_msg_ok "Descargando núcleo oficial V2Ray ($arch)..."
-    if ! curl -fsSL --connect-timeout 5 --max-time 60 -o "${tmp_dir}/xray.zip" "$xray_url"; then
-        wget -q --timeout=30 -O "${tmp_dir}/xray.zip" "$xray_url" || {
-            tc_msg_err "Error descargando el núcleo V2Ray."
-            rm -rf "$tmp_dir"
-            return 1
-        }
-    fi
-
-    unzip -q -o "${tmp_dir}/xray.zip" -d "$tmp_dir" >/dev/null 2>&1 || {
-        tc_msg_err "Error al descomprimir el archivo de V2Ray."
-        rm -rf "$tmp_dir"
-        return 1
-    }
-
-    install -m 755 "${tmp_dir}/xray" "$TC_V2_BIN"
-    rm -rf "$tmp_dir"
-
-    mkdir -p /usr/local/share/xray /var/log/xray "$TC_V2_DIR" /etc/v2ray
-    tc_v2_ensure_certs
-
-    # Servicio systemd
-    cat > "$TC_V2_SERVICE" <<EOF
-[Unit]
-Description=TunnelCore V2Ray/Xray Core Service
-Documentation=https://github.com/XTLS/Xray-core
-After=network.target nss-lookup.target
-
-[Service]
-User=root
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
-ExecStart=${TC_V2_BIN} run -config ${TC_V2_CONF}
-Restart=on-failure
-RestartPreventExitStatus=23
-LimitNPROC=10000
-LimitNOFILE=1048576
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    systemctl daemon-reload >/dev/null 2>&1
-    systemctl enable xray >/dev/null 2>&1
-    return 0
-}
-
-# ── Generador Completo de Configuración desde Cero ────────────
-tc_v2_build_config_from_scratch() {
-    local http_p="${V2_HTTP_PORT:-80}"
-    local tls_p="${V2_TLS_PORT:-443}"
-    local path="${V2_PATH:-/tunnelcore}"
-    local init_uuid="$(tc_gen_uuid)"
-
-    mkdir -p "$TC_V2_DIR" /var/log/xray
-    tc_v2_ensure_certs
-
-    cat > "$TC_V2_CONF" <<EOF
-{
-  "log": {
-    "loglevel": "warning",
-    "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log"
-  },
-  "inbounds": [
-    {
-      "tag": "vmess-ws-http",
-      "port": ${http_p},
-      "listen": "0.0.0.0",
-      "protocol": "vmess",
-      "settings": {
-        "clients": [
-          {
-            "id": "${init_uuid}",
-            "alterId": 0
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": {
-          "path": "${path}"
-        }
-      }
-    },
-    {
-      "tag": "vless-ws-http",
-      "port": 8080,
-      "listen": "0.0.0.0",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "${init_uuid}",
-            "level": 0
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": {
-          "path": "${path}"
-        }
-      }
-    },
-    {
-      "tag": "vmess-ws-tls",
-      "port": ${tls_p},
-      "listen": "0.0.0.0",
-      "protocol": "vmess",
-      "settings": {
-        "clients": [
-          {
-            "id": "${init_uuid}",
-            "alterId": 0
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": {
-          "certificates": [
-            {
-              "certificateFile": "${TC_V2_CERT}",
-              "keyFile": "${TC_V2_KEY}"
-            }
-          ]
-        },
-        "wsSettings": {
-          "path": "${path}"
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "tag": "direct"
-    },
-    {
-      "protocol": "blackhole",
-      "tag": "blocked"
-    }
-  ]
-}
-EOF
-
-    ln -sf "$TC_V2_CONF" /etc/v2ray/config.json 2>/dev/null || true
-    echo "admin | ${init_uuid} | $(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || echo '2030-01-01')" > "$TC_V2_REG"
-    chmod 600 "$TC_V2_CONF" "$TC_V2_REG"
-}
-
-# ── Instalador y Asistente de Configuración desde Cero ────────
-tc_v2_setup_wizard() {
-    tc_clear
-    tc_title "CONFIGURACIÓN DE V2RAY / XRAY DESDE CERO"
-
+v2ray_require_jq() {
+    command -v jq >/dev/null 2>&1 && return 0
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update -y >/dev/null 2>&1 || true
-        apt-get install -y curl wget unzip ca-certificates jq uuid-runtime openssl >/dev/null 2>&1 || true
+        apt-get install -y jq >/dev/null 2>&1 || true
     fi
-
-    # 1. Puerto HTTP (sin TLS)
-    printf '%b[1] Puerto HTTP sin TLS (WebSocket) [Enter = 80]:%b ' "$TC_DARK_GREEN" "$TC_NC"
-    local http_p
-    read -r http_p
-    [[ -z "$http_p" ]] && http_p="80"
-
-    # 2. Puerto HTTPS (con TLS)
-    printf '%b[2] Puerto HTTPS con TLS (WebSocket) [Enter = 443]:%b ' "$TC_DARK_GREEN" "$TC_NC"
-    local tls_p
-    read -r tls_p
-    [[ -z "$tls_p" ]] && tls_p="443"
-
-    # 3. Path WebSocket
-    printf '%b[3] Path WebSocket [Enter = /tunnelcore]:%b ' "$TC_DARK_GREEN" "$TC_NC"
-    local path
-    read -r path
-    [[ -z "$path" ]] && path="/tunnelcore"
-    [[ "$path" != /* ]] && path="/$path"
-
-    # 4. Dominio / Host CDN
-    printf '%b[4] Dominio CDN / Host Cloudflare (opcional, ej: midominio.com):%b ' "$TC_DARK_GREEN" "$TC_NC"
-    local domain
-    read -r domain
-
-    local sni="$domain"
-    if [[ -n "$domain" ]]; then
-        printf '%b[5] SNI / Bug Host [Enter para usar %s]:%b ' "$TC_DARK_GREEN" "$domain" "$TC_NC"
-        read -r sni_in
-        [[ -n "$sni_in" ]] && sni="$sni_in"
-    fi
-
-    V2_PROTO="multi"
-    V2_NETWORK="ws"
-    V2_HTTP_PORT="$http_p"
-    V2_TLS_PORT="$tls_p"
-    V2_PATH="$path"
-    V2_DOMAIN="$domain"
-    V2_SNI="$sni"
-    tc_v2_save_env
-
-    tc_v2_install_core_bin || {
-        tc_msg_err "Falló la instalación del binario V2Ray."
-        tc_pause
-        return 1
-    }
-
-    tc_v2_build_config_from_scratch
-    tc_v2_restart
-
-    if tc_v2_is_running; then
-        tc_msg_ok "¡V2Ray configurado e iniciado con éxito [ON]!"
-    else
-        tc_msg_warn "Iniciando servicio..."
-        systemctl start xray >/dev/null 2>&1 || true
-        tc_v2_restart
-    fi
-    tc_pause
+    command -v jq >/dev/null 2>&1
 }
 
-# ── Agregar Usuario Rápido (Flujo Simple Sin Preguntas Complejas) ──
-tc_v2_add_user_simple() {
-    if ! tc_v2_is_installed; then
-        tc_msg_warn "V2Ray no está instalado. Ejecute la configuración desde cero primero."
-        tc_pause
+v2ray_restart_service() {
+    systemctl stop apache2 >/dev/null 2>&1 || true
+    systemctl stop nginx >/dev/null 2>&1 || true
+    if systemctl is-active xray >/dev/null 2>&1; then
+        systemctl restart xray >/dev/null 2>&1
+    elif systemctl is-active v2ray >/dev/null 2>&1; then
+        systemctl restart v2ray >/dev/null 2>&1
+    elif command -v v2ray >/dev/null 2>&1; then
+        v2ray restart >/dev/null 2>&1
+    elif systemctl list-unit-files xray.service >/dev/null 2>&1; then
+        systemctl restart xray >/dev/null 2>&1
+    elif systemctl list-unit-files v2ray.service >/dev/null 2>&1; then
+        systemctl restart v2ray >/dev/null 2>&1
+    fi
+}
+
+v2ray_valid_uuid() {
+    [[ "$1" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
+}
+
+v2ray_valid_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" -ge 1 ]] && [[ "$1" -le 65535 ]]
+}
+
+v2ray_show_info() {
+    local cfg
+    if command -v v2ray >/dev/null 2>&1; then
+        v2ray info
+        return 0
+    fi
+    cfg="$(v2ray_config_file)"
+    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontró config.json de V2Ray/Xray.\033[0m" && return 1
+    echo -e "\033[1;33mComando v2ray no disponible; mostrando puertos desde config.json.\033[0m"
+    if v2ray_require_jq; then
+        jq -r '.inbounds[]? | "PUERTO: \(.port) | PROTOCOLO: \(.protocol // "desconocido") | RED: \(.streamSettings.network // "tcp")"' "$cfg"
+    else
+        grep -E '"port"|"protocol"|"network"' "$cfg"
+    fi
+}
+
+msg01='\033[1;37m\033[1;33mUsuario vacío\033[1;31m'
+msg02='\033[1;37m\033[1;33mNombre muy corto (MIN: 2 caracteres)\033[1;31m'
+msg03='\033[1;37m\033[1;33mNombre muy largo (MAX: 20 caracteres)\033[1;31m'
+msg08='\033[1;37m\033[1;33mDuración no válida, use solo números\033[1;31m'
+msg09='\033[1;37m\033[1;33mDuración máxima un año\033[1;31m'
+msg15='\033[1;37m\033[1;33m(Solo números) GB = Min: 1gb Max: 1000gb\033[1;31m'
+msg16='\033[1;37m\033[1;33m(Solo números)\033[1;31m'
+msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[1;31m'
+
+# ── Instalador V2Ray Oficial ──────────────────────────────────
+intallv2ray() {
+    tc_clear
+    v2ray_title "INSTALADOR V2RAY"
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -y >/dev/null 2>&1 || true
+        apt-get install -y curl wget unzip ca-certificates jq uuid-runtime openssl python3 python3-pip python3-setuptools >/dev/null 2>&1 || true
+    fi
+
+    # Corregir pip si es Python 3.8
+    local py_ver
+    py_ver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "3.8")"
+    if [[ "$py_ver" == "3.8" ]] && ! command -v pip >/dev/null 2>&1 && ! command -v pip3 >/dev/null 2>&1; then
+        curl -fsSL https://bootstrap.pypa.io/pip/3.8/get-pip.py | python3 >/dev/null 2>&1 || true
+    fi
+
+    echo -e "\033[1;32m[✓] Descargando e iniciando instalador Multi-V2Ray...\033[0m"
+    if ! bash <(curl -sL https://multi.netlify.app/v2ray.sh) -k 2>/dev/null; then
+        bash <(curl -sL https://raw.githubusercontent.com/Jrohy/multi-v2ray/master/v2ray.sh) 2>/dev/null || true
+    fi
+
+    mkdir -p /etc/SSHPlus /etc/tunnelcore/v2ray
+    local USRdatabase="/etc/SSHPlus/RegV2ray"
+    [[ ! -e ${USRdatabase} ]] && touch ${USRdatabase}
+    sort ${USRdatabase} | uniq > "${USRdatabase}tmp"
+    mv -f "${USRdatabase}tmp" "${USRdatabase}"
+
+    tc_clear
+    if ! command -v v2ray >/dev/null 2>&1; then
+        echo -e "\033[1;31mEl instalador original no dejó disponible el comando v2ray.\033[0m"
+        echo -e "\033[1;37mSe abrirá el instalador Xray XHTTP local para crear una configuración funcional.\033[0m"
+        pausa_v2ray
+        instalar_xray_xhttp
+    else
+        v2ray_title "ELIJA EL PROTOCOLO V2RAY"
+        v2ray stream
+        tc_clear
+        linea_v2ray
+        v2ray_title "INDIQUE EL PUERTO V2RAY [8443] o [443]"
+        v2ray port
+        tc_clear
+    fi
+
+    local config_v2ray="$(v2ray_config_file)"
+    if [[ -z "$config_v2ray" ]]; then
+        linea_v2ray
+        echo -e "\033[1;31mNo se encontró config.json de V2Ray/Xray.\033[0m"
+        echo -e "\033[1;37mLa instalación base no generó el archivo de configuración.\033[0m"
+        echo -e "\033[1;37mUse REINSTALAR V2RAY o GESTIÓN XRAY XHTTP > INSTALAR XRAY XHTTP.\033[0m"
+        linea_v2ray
+        pausa_v2ray
         return
     fi
 
-    tc_clear
-    tc_title "AGREGAR USUARIO V2RAY"
-    tc_v2_load_env
+    v2ray_ensure_legacy_config "$config_v2ray"
+    linea_v2ray
+    v2ray_title "INFORMACIÓN DE CUENTA"
+    v2ray_show_info
+    linea_v2ray
+    pausa_v2ray
+}
 
-    local nick
+# ── Desinstalador Oficial ─────────────────────────────────────
+unistallv2() {
+    tc_clear
+    v2ray_title "DESINSTALAR V2RAY"
+    if command -v v2ray >/dev/null 2>&1; then
+        v2ray uninstall >/dev/null 2>&1 || true
+    fi
+    systemctl stop xray >/dev/null 2>&1 || true
+    systemctl stop v2ray >/dev/null 2>&1 || true
+    systemctl disable xray >/dev/null 2>&1 || true
+    systemctl disable v2ray >/dev/null 2>&1 || true
+    pkill -9 -x v2ray >/dev/null 2>&1 || true
+    pkill -9 -x xray >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/xray.service /etc/systemd/system/v2ray.service /lib/systemd/system/v2ray.service /lib/systemd/system/xray.service
+    rm -f /usr/local/bin/xray /usr/local/bin/v2ray /usr/bin/v2ray /usr/bin/xray /bin/v2ray /bin/xray
+    rm -rf /usr/local/etc/xray /etc/xray /var/log/xray /etc/v2ray /usr/local/etc/v2ray /var/log/v2ray /etc/SSHPlus/RegV2ray /etc/tunnelcore/v2ray
+    systemctl daemon-reload >/dev/null 2>&1
+    echo -e "\n\033[1;32mV2RAY ELIMINADO CORRECTAMENTE.\033[0m"
+    linea_v2ray
+    pausa_v2ray
+}
+
+# ── WebSocket Configuration ───────────────────────────────────
+v2ray_set_websocket() {
+    local cfg path host tmp
+    tc_clear
+    v2ray_title "ACTIVAR WEBSOCKET V2RAY"
+    cfg="$(v2ray_config_file)"
+    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontró config.json de V2Ray/Xray.\033[0m" && pausa_v2ray && return
+    v2ray_ensure_legacy_config "$cfg"
+    cfg="/etc/v2ray/config.json"
+    printf '%bPATH WEBSOCKET [Enter = /tunnelcore]:%b ' "$SSHPLUS_DARK_GREEN" "$SCOLOR"
+    read -r path
+    [[ -z "$path" ]] && path="/tunnelcore"
+    [[ "$path" != /* ]] && path="/$path"
+    printf '%bHOST / DOMINIO [opcional]:%b ' "$SSHPLUS_DARK_GREEN" "$SCOLOR"
+    read -r host
+    cp "$cfg" "$cfg.bak-$(date +%s)"
+    if v2ray_require_jq; then
+        tmp="${cfg}.tmp"
+        if [[ -n "$host" ]]; then
+            jq --arg path "$path" --arg host "$host" '
+              .inbounds |= map(
+                .streamSettings = ((.streamSettings // {}) + {
+                  "network": "ws",
+                  "security": (.streamSettings.security // "none"),
+                  "wsSettings": {
+                    "path": $path,
+                    "headers": {
+                      "Host": $host
+                    }
+                  }
+                })
+              )
+            ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+        else
+            jq --arg path "$path" '
+              .inbounds |= map(
+                .streamSettings = ((.streamSettings // {}) + {
+                  "network": "ws",
+                  "security": (.streamSettings.security // "none"),
+                  "wsSettings": {
+                    "path": $path
+                  }
+                })
+              )
+            ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+        fi
+    fi
+    v2ray_restart_service
+    linea_v2ray
+    echo -e "\033[1;32mWebSocket aplicado correctamente.\033[0m"
+    echo -e "${SSHPLUS_DARK_GREEN}PATH:${SCOLOR} \033[1;37m$path\033[0m"
+    [[ -n "$host" ]] && echo -e "${SSHPLUS_DARK_GREEN}HOST:${SCOLOR} \033[1;37m$host\033[0m"
+    linea_v2ray
+    pausa_v2ray
+}
+
+protocolv2ray() {
+    local opt
+    tc_clear
+    v2ray_title "CAMBIAR PROTOCOLO V2RAY"
+    v2ray_opt "1" "Abrir selector original"
+    v2ray_opt "3" "WebSocket"
+    v2ray_line
+    v2ray_opt "0" "VOLVER"
+    v2ray_line
+    printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR" && read -r opt
+    case "$opt" in
+        3|03) v2ray_set_websocket ;;
+        1|01)
+            if ! command -v v2ray >/dev/null 2>&1; then
+                echo -e "\033[1;31mEl selector original requiere el comando v2ray.\033[0m"
+                pausa_v2ray
+                return
+            fi
+            v2ray stream
+            pausa_v2ray
+            ;;
+        0|00) return ;;
+        *) echo -e "\033[1;31mOpción no válida!\033[0m"; sleep 1; protocolv2ray ;;
+    esac
+}
+
+tls() {
+    tc_clear
+    v2ray_title "Activar o desactivar TLS"
+    if ! command -v v2ray >/dev/null 2>&1; then
+        echo -e "\033[1;31mLa opción TLS original requiere el comando v2ray.\033[0m"
+        pausa_v2ray
+        return
+    fi
+    v2ray tls
+    linea_v2ray
+    pausa_v2ray
+}
+
+portv() {
+    tc_clear
+    v2ray_title "CAMBIAR PUERTO V2RAY"
+    if ! command -v v2ray >/dev/null 2>&1; then
+        echo -e "\033[1;31mLa opción cambiar puerto original requiere el comando v2ray.\033[0m"
+        pausa_v2ray
+        return
+    fi
+    v2ray port
+    linea_v2ray
+    pausa_v2ray
+}
+
+agregar_puerto_v2ray() {
+    local cfg tmp port base_port
+    tc_clear
+    v2ray_title "AGREGAR PUERTO V2RAY"
+    cfg="$(v2ray_config_file)"
+    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontró config.json de V2Ray/Xray.\033[0m" && pausa_v2ray && return
+    v2ray_ensure_legacy_config "$cfg"
+    cfg="/etc/v2ray/config.json"
+    if ! v2ray_require_jq; then
+        echo -e "\033[1;31mjq no está instalado.\033[0m"
+        pausa_v2ray
+        return
+    fi
+    base_port="$(jq -r '.inbounds[]? | select((.settings.clients? | type) == "array") | .port' "$cfg" | sed '/^$/d' | head -1)"
+    [[ -z "$base_port" ]] && echo -e "\033[1;31mNo hay inbound base para duplicar.\033[0m" && pausa_v2ray && return
+    echo -e "\033[1;33mPuerto base detectado: \033[1;37m$base_port\033[0m"
     while true; do
-        printf '%bNombre / Alias del usuario:%b ' "$TC_DARK_GREEN" "$TC_NC"
-        read -r nick
-        nick="$(echo "$nick" | tr -d ' ')"
-        [[ -z "$nick" ]] && { tc_msg_err "El nombre no puede estar vacío."; continue; }
-        if grep -qE "^[[:space:]]*${nick}[[:space:]]*\|" "$TC_V2_REG" 2>/dev/null; then
-            tc_msg_err "Ya existe un usuario con ese nombre."
+        printf '%bNUEVO PUERTO V2RAY:%b ' "$SSHPLUS_DARK_GREEN" "$SCOLOR" && read -r port
+        [[ -z "$port" ]] && echo -e "$msg17" && continue
+        if ! v2ray_valid_port "$port"; then
+            echo -e "\033[1;31mPuerto no válido. Use 1-65535.\033[0m"
+            continue
+        fi
+        if jq -e --argjson port "$port" '.inbounds[]? | select(.port == $port)' "$cfg" >/dev/null; then
+            echo -e "\033[1;31mYa existe un inbound con ese puerto.\033[0m"
             continue
         fi
         break
     done
+    cp "$cfg" "$cfg.bak-$(date +%s)"
+    tmp="${cfg}.tmp"
+    jq --argjson base "$base_port" --argjson port "$port" '
+      .inbounds += [
+        (.inbounds[] | select(.port == $base and ((.settings.clients? | type) == "array")) | .port = $port | .settings.clients = [])
+      ]
+    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+    v2ray_restart_service
+    echo -e "\033[1;32mPuerto agregado correctamente.\033[0m"
+    echo -e "\033[1;33mNuevo puerto: \033[1;37m$port\033[0m"
+    pausa_v2ray
+}
 
-    printf '%bDías de duración [1-365] (Enter = 30):%b ' "$TC_DARK_GREEN" "$TC_NC"
-    local days
-    read -r days
-    [[ -z "$days" ]] && days="30"
-    local expiry_date="$(date '+%Y-%m-%d' -d "+${days} days" 2>/dev/null || echo "2030-01-01")"
+stats() {
+    tc_clear
+    v2ray_title "ESTADÍSTICAS DE CONSUMO"
+    if command -v v2ray >/dev/null 2>&1; then
+        v2ray stats
+    else
+        echo -e "\033[1;33mComando v2ray stats no disponible.\033[0m"
+    fi
+    linea_v2ray
+    pausa_v2ray
+}
 
-    printf '%bUUID personalizado (Enter para generar aleatorio):%b ' "$TC_DARK_GREEN" "$TC_NC"
-    local uuid
-    read -r uuid
-    [[ -z "$uuid" ]] && uuid="$(tc_gen_uuid)"
+infocuenta() {
+    tc_clear
+    v2ray_title "INFORMACIÓN DE CUENTA"
+    v2ray_show_info
+    linea_v2ray
+    pausa_v2ray
+}
 
-    # Insertar UUID en todos los inbounds de config.json
-    local tmp="${TC_V2_CONF}.tmp"
-    jq --arg id "$uuid" '
-      .inbounds |= map(
-        if (.protocol == "vmess" and ((.settings.clients? | type) == "array")) then
-          if (.settings.clients | any(.id == $id)) then . else .settings.clients += [{"id": $id, "alterId": 0}] end
-        elif (.protocol == "vless" and ((.settings.clients? | type) == "array")) then
-          if (.settings.clients | any(.id == $id)) then . else .settings.clients += [{"id": $id, "level": 0}] end
-        else
-          .
-        end
-      )
-    ' "$TC_V2_CONF" > "$tmp" && mv "$tmp" "$TC_V2_CONF"
+# ── Crear Usuario V2Ray ───────────────────────────────────────
+addusr() {
+    tc_clear
+    v2ray_title "AÑADIR USUARIO | UUID V2RAY"
+    local cfg tmp
+    cfg="$(v2ray_config_file)"
+    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontró config.json de V2Ray/Xray.\033[0m" && pausa_v2ray && return
+    v2ray_ensure_legacy_config "$cfg"
+    cfg="/etc/v2ray/config.json"
+    if ! v2ray_require_jq; then
+        echo -e "\033[1;31mjq no está instalado.\033[0m"
+        pausa_v2ray
+        return
+    fi
 
-    echo "${nick} | ${uuid} | ${expiry_date}" >> "$TC_V2_REG"
-    tc_v2_restart
+    # 1. Nombre
+    local nick
+    while true; do
+        printf '%bNOMBRE DE USUARIO:%b ' "$TC_DARK_GREEN" "$TC_NC"
+        read -r nick
+        nick="$(echo "$nick" | sed -e 's/[^a-z0-9 -]//ig')"
+        if [[ -z "$nick" ]]; then
+            echo -e "$msg17" && continue
+        elif [[ "${#nick}" -lt 2 ]]; then
+            echo -e "$msg02" && continue
+        elif [[ "${#nick}" -gt 20 ]]; then
+            echo -e "$msg03" && continue
+        fi
+        break
+    done
 
-    # Generar todos los enlaces listos
+    # 2. Protocolo
+    local proto_choice="1" proto_name="VMess" proto_tag="vmess"
+    while true; do
+        echo ""
+        echo -e "\033[1;37mSELECCIONAR PROTOCOLO:\033[0m"
+        v2ray_opt "1" "VMess"
+        v2ray_opt "2" "VLESS"
+        printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR" && read -r proto_choice
+        case "$proto_choice" in
+            1) proto_name="VMess"; proto_tag="vmess"; break ;;
+            2) proto_name="VLESS"; proto_tag="vless"; break ;;
+            *) echo -e "\033[1;31mOpción no válida!\033[0m" ;;
+        esac
+    done
+
+    # 3. Puerto
+    mapfile -t v2_ports < <(jq -r '.inbounds[]? | select((.settings.clients? | type) == "array") | .port' "$cfg" 2>/dev/null | sed '/^$/d' | sort -n | uniq)
+    local selected_port="" selected_ports_disp="" apply_all=false
+    if [[ "${#v2_ports[@]}" -eq 0 ]]; then
+        printf '%bPUERTO V2RAY (ej: 80, 443, 8080):%b ' "$TC_DARK_GREEN" "$TC_NC" && read -r selected_port
+        [[ -z "$selected_port" ]] && selected_port="80"
+        selected_ports_disp="$selected_port"
+    elif [[ "${#v2_ports[@]}" -eq 1 ]]; then
+        selected_port="${v2_ports[0]}"
+        selected_ports_disp="$selected_port"
+        echo -e "\033[1;33mPuerto V2Ray detectado: \033[1;37m${selected_port}\033[0m"
+    else
+        echo ""
+        echo -e "\033[1;37mSELECCIONAR PUERTO V2RAY:\033[0m"
+        for i in "${!v2_ports[@]}"; do
+            v2ray_opt "$((i+1))" "Puerto ${v2_ports[$i]}"
+        done
+        v2ray_opt "$(( ${#v2_ports[@]} + 1 ))" "TODOS LOS PUERTOS ($(IFS=,; echo "${v2_ports[*]}"))"
+        while true; do
+            printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR" && read -r p_opt
+            if [[ "$p_opt" -ge 1 && "$p_opt" -le "${#v2_ports[@]}" ]] 2>/dev/null; then
+                selected_port="${v2_ports[$((p_opt-1))]}"
+                selected_ports_disp="$selected_port"
+                apply_all=false
+                break
+            elif [[ "$p_opt" -eq "$(( ${#v2_ports[@]} + 1 ))" ]] 2>/dev/null; then
+                apply_all=true
+                selected_port="${v2_ports[0]}"
+                selected_ports_disp="$(IFS=,; echo "${v2_ports[*]}")"
+                break
+            else
+                echo -e "\033[1;31mOpción no válida!\033[0m"
+            fi
+        done
+    fi
+
+    # 4. UUID
+    local UUID
+    while true; do
+        echo ""
+        echo -e "\033[1;37mCONFIGURAR UUID / ID:\033[0m"
+        v2ray_opt "1" "Generar automáticamente (Aleatorio)"
+        v2ray_opt "2" "Ingresar manualmente"
+        printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR" && read -r uuidopc
+        case "$uuidopc" in
+            1)
+                UUID="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || tc_gen_uuid)"
+                break
+                ;;
+            2)
+                printf '%bUUID:%b ' "$TC_DARK_GREEN" "$TC_NC" && read -r UUID
+                [[ -z "$UUID" ]] && echo -e "$msg17" && continue
+                if ! v2ray_valid_uuid "$UUID"; then
+                    echo -e "\033[1;31mUUID no válido.\033[0m"
+                    continue
+                fi
+                break
+                ;;
+            *) echo -e "\033[1;31mOpción no válida!\033[0m" ;;
+        esac
+    done
+
+    # 5. Modo de Conexión
+    local tls_opt="1" tls_mode="none" add_host="" host_header="" sni_host="" ext_port="$selected_port"
+    local cur_domain="$(cat /etc/SSHPlus/v2ray/domain 2>/dev/null || cat /etc/xray/domain 2>/dev/null || cat /etc/v2ray/domain 2>/dev/null || echo "")"
     local vps_ip="$(tc_public_ip)"
-    local host_cdn="${V2_DOMAIN:-$vps_ip}"
-    local sni_host="${V2_SNI:-$host_cdn}"
-    local path_ws="${V2_PATH:-/tunnelcore}"
-    local http_p="${V2_HTTP_PORT:-80}"
-    local tls_p="${V2_TLS_PORT:-443}"
 
-    # 1. VMess TLS (Puerto 443 / Cloudflare CDN)
-    local vmess_tls_json b64_tls uri_vmess_tls
-    vmess_tls_json=$(cat <<EOF
-{"v":"2","ps":"${nick}-TLS","add":"${host_cdn}","port":"${tls_p}","id":"${uuid}","aid":"0","scy":"auto","net":"ws","type":"none","host":"${host_cdn}","path":"${path_ws}","tls":"tls","sni":"${sni_host}","alpn":"","fp":""}
+    while true; do
+        echo ""
+        echo -e "\033[1;37mMODO DE CONEXIÓN / SEGURIDAD TLS:\033[0m"
+        v2ray_opt "1" "DIRECTO A IP (Sin TLS / HTTP WS - Puerto $selected_port)"
+        v2ray_opt "2" "CLOUDFLARE CDN (Con TLS / Dominio - Puerto 443 + SNI Bug)"
+        printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR" && read -r tls_opt
+        case "$tls_opt" in
+            1)
+                tls_mode="none"
+                add_host="$vps_ip"
+                ext_port="$selected_port"
+                host_header=""
+                sni_host=""
+                break
+                ;;
+            2)
+                tls_mode="tls"
+                ext_port="443"
+                echo ""
+                if [[ -n "$cur_domain" ]]; then
+                    printf '%bDOMINIO / HOST ADD (actual: %s) [Enter para usar]:%b ' "$TC_DARK_GREEN" "$cur_domain" "$TC_NC"
+                    read -r user_domain
+                    [[ -n "$user_domain" ]] && add_host="$user_domain" || add_host="$cur_domain"
+                else
+                    while true; do
+                        printf '%bDOMINIO / HOST ADD (ej: midominio.com):%b ' "$TC_DARK_GREEN" "$TC_NC"
+                        read -r user_domain
+                        if [[ -z "$user_domain" ]]; then
+                            echo -e "\033[1;31mDebe ingresar un dominio.\033[0m"
+                            continue
+                        fi
+                        add_host="$user_domain"
+                        mkdir -p /etc/SSHPlus/v2ray
+                        echo "$add_host" > /etc/SSHPlus/v2ray/domain
+                        break
+                    done
+                fi
+
+                echo ""
+                printf '%bSNI / BUG HOST (ej: bug.operadora.com) [Enter para usar %s]:%b ' "$TC_DARK_GREEN" "$add_host" "$TC_NC"
+                read -r user_sni
+                if [[ -n "$user_sni" ]]; then
+                    sni_host="$user_sni"
+                    host_header="$user_sni"
+                else
+                    sni_host="$add_host"
+                    host_header="$add_host"
+                fi
+                break
+                ;;
+            *) echo -e "\033[1;31mOpción no válida!\033[0m" ;;
+        esac
+    done
+
+    # 6. Días de Duración
+    local diasuser
+    while true; do
+        echo ""
+        printf '%bDURACIÓN DEL USUARIO (DÍAS):%b ' "$TC_DARK_GREEN" "$TC_NC" && read -r diasuser
+        if [[ -z "$diasuser" ]]; then
+            echo -e "$msg17" && continue
+        elif ! [[ "$diasuser" =~ ^[0-9]+$ ]]; then
+            echo -e "$msg08" && continue
+        elif [[ "$diasuser" -gt "365" ]]; then
+            echo -e "$msg09" && continue
+        fi
+        break
+    done
+
+    local valid="$(date '+%C%y-%m-%d' -d "+${diasuser} days" 2>/dev/null || echo "2030-01-01")"
+    local datexp="$(date "+%F" -d "+${diasuser} days" 2>/dev/null || echo "2030-01-01")"
+
+    # 7. Insertar en config.json
+    cp "$cfg" "$cfg.bak-$(date +%s)"
+    tmp="${cfg}.tmp"
+
+    if [[ "$apply_all" == true ]]; then
+        jq --arg uuid "$UUID" --arg proto "$proto_tag" '
+          .inbounds |= map(
+            if ((.settings.clients? | type) == "array") then
+              if (.settings.clients | any(.id == $uuid)) then
+                .
+              else
+                .settings.clients += [(
+                  if ($proto == "vless" or .protocol == "vless") then
+                    {"id": $uuid}
+                  else
+                    {"id": $uuid, "alterId": 0}
+                  end
+                )]
+              end
+            else
+              .
+            end
+          )
+        ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+    else
+        local tgt_p=$selected_port
+        jq --arg uuid "$UUID" --argjson tgt "$tgt_p" --arg proto "$proto_tag" '
+          .inbounds |= map(
+            if (.port == $tgt and ((.settings.clients? | type) == "array")) then
+              if (.settings.clients | any(.id == $uuid)) then
+                .
+              else
+                .settings.clients += [(
+                  if ($proto == "vless" or .protocol == "vless") then
+                    {"id": $uuid}
+                  else
+                    {"id": $uuid, "alterId": 0}
+                  end
+                )]
+              end
+            else
+              .
+            end
+          )
+        ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+    fi
+
+    # 8. Registro y Reinicio
+    mkdir -p /etc/SSHPlus/v2ray
+    if ! grep -q "$UUID.*$nick" /etc/SSHPlus/RegV2ray 2>/dev/null; then
+        echo "  $UUID | $nick | $valid " >> /etc/SSHPlus/RegV2ray
+    fi
+    v2ray_restart_service
+
+    # 9. Generar Enlace URI
+    local path_ws="$(jq -r --argjson p "${selected_port:-80}" '.inbounds[]? | select(.port == $p) | .streamSettings.wsSettings.path // .streamSettings.xhttpSettings.path // ""' "$cfg" 2>/dev/null)"
+    [[ -z "$path_ws" || "$path_ws" == "null" ]] && path_ws="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // .inbounds[0].streamSettings.xhttpSettings.path // "/v2ray"' "$cfg" 2>/dev/null)"
+    [[ -z "$path_ws" || "$path_ws" == "null" ]] && path_ws="/v2ray"
+
+    local uri=""
+    if [[ "$proto_tag" == "vmess" ]]; then
+        local vmess_json
+        vmess_json=$(cat <<EOF
+{
+  "v": "2",
+  "ps": "$nick",
+  "add": "${add_host}",
+  "port": "${ext_port}",
+  "id": "$UUID",
+  "aid": "0",
+  "scy": "auto",
+  "net": "ws",
+  "type": "",
+  "host": "${host_header}",
+  "path": "${path_ws}",
+  "tls": "${tls_mode}",
+  "sni": "${sni_host}",
+  "alpn": "",
+  "fp": ""
+}
 EOF
 )
-    b64_tls="$(printf '%s' "$vmess_tls_json" | base64 | tr -d '\n\r ')"
-    uri_vmess_tls="vmess://${b64_tls}"
+        local vmess_b64="$(printf '%s' "$vmess_json" | base64 | tr -d '\n\r ')"
+        uri="vmess://${vmess_b64}"
+    else
+        local enc_path="$(printf '%s' "$path_ws" | sed 's/\//%2F/g')"
+        if [[ "$tls_mode" == "tls" ]]; then
+            uri="vless://${UUID}@${add_host}:${ext_port}?type=ws&security=tls&sni=${sni_host}&host=${host_header}&path=${enc_path}#${nick}"
+        else
+            uri="vless://${UUID}@${add_host}:${ext_port}?type=ws&security=none&path=${enc_path}#${nick}"
+        fi
+    fi
 
-    # 2. VMess Directo IP (Puerto 80 / Sin TLS)
-    local vmess_http_json b64_http uri_vmess_http
-    vmess_http_json=$(cat <<EOF
-{"v":"2","ps":"${nick}-HTTP","add":"${vps_ip}","port":"${http_p}","id":"${uuid}","aid":"0","scy":"auto","net":"ws","type":"none","host":"","path":"${path_ws}","tls":"none","sni":"","alpn":"","fp":""}
-EOF
-)
-    b64_http="$(printf '%s' "$vmess_http_json" | base64 | tr -d '\n\r ')"
-    uri_vmess_http="vmess://${b64_http}"
-
-    # 3. VLESS TLS
-    local enc_path="$(printf '%s' "$path_ws" | sed 's/\//%2F/g')"
-    local uri_vless_tls="vless://${uuid}@${host_cdn}:${tls_p}?type=ws&security=tls&sni=${sni_host}&host=${host_cdn}&path=${enc_path}#${nick}-VLESS"
-
+    # 10. Mostrar Ficha
     tc_clear
-    tc_title "CUENTA V2RAY CREADA CON ÉXITO"
-    printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "USUARIO:" "$TC_NC" "$TC_WHITE" "$nick" "$TC_NC"
-    printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "UUID:" "$TC_NC" "$TC_WHITE" "$uuid" "$TC_NC"
-    printf '%b%-20s%b %b%s (%s días)%b\n' "$TC_DARK_GREEN" "EXPIRA:" "$TC_NC" "$TC_WHITE" "$expiry_date" "$days" "$TC_NC"
-    printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "PATH WS:" "$TC_NC" "$TC_WHITE" "$path_ws" "$TC_NC"
-    printf '%b%-20s%b %b%s%b\n' "$TC_DARK_GREEN" "HOST CDN / DOMINIO:" "$TC_NC" "$TC_WHITE" "$host_cdn" "$TC_NC"
-    tc_line
-    printf '%b[1] ENLACE VMESS CON TLS (PUERTO %s / CLOUDFLARE / SNI):%b\n' "$TC_YELLOW" "$tls_p" "$TC_NC"
-    printf '%b%s%b\n\n' "$TC_CYAN" "$uri_vmess_tls" "$TC_NC"
-    printf '%b[2] ENLACE VMESS SIN TLS (PUERTO %s / DIRECTO IP):%b\n' "$TC_YELLOW" "$http_p" "$TC_NC"
-    printf '%b%s%b\n\n' "$TC_CYAN" "$uri_vmess_http" "$TC_NC"
-    printf '%b[3] ENLACE VLESS CON TLS (PUERTO %s):%b\n' "$TC_YELLOW" "$tls_p" "$TC_NC"
-    printf '%b%s%b\n' "$TC_CYAN" "$uri_vless_tls" "$TC_NC"
-    tc_line
-    tc_pause
+    v2ray_title "USUARIO V2RAY CREADO CON ÉXITO"
+    linea_v2ray
+    printf "\033[1;32m%-22s\033[0m \033[1;37m%s\033[0m\n" "USUARIO:" "$nick"
+    printf "\033[1;32m%-22s\033[0m \033[1;37m%s\033[0m\n" "PROTOCOLO:" "$proto_name"
+    printf "\033[1;32m%-22s\033[0m \033[1;37m%s\033[0m\n" "PUERTO(S) VPS:" "$selected_ports_disp"
+    printf "\033[1;32m%-22s\033[0m \033[1;37m%s\033[0m\n" "PUERTO CONEXIÓN:" "$ext_port"
+    printf "\033[1;32m%-22s\033[0m \033[1;37m%s\033[0m\n" "UUID / ID:" "$UUID"
+    printf "\033[1;32m%-22s\033[0m \033[1;37m%s\033[0m\n" "SEGURIDAD TLS:" "$tls_mode"
+    printf "\033[1;32m%-22s\033[0m \033[1;37m%s\033[0m\n" "SERVIDOR (ADD):" "$add_host"
+    [[ "$tls_mode" == "tls" ]] && printf "\033[1;32m%-22s\033[0m \033[1;37m%s\033[0m\n" "SNI / BUG HOST:" "$sni_host"
+    printf "\033[1;32m%-22s\033[0m \033[1;37m%s\033[0m\n" "PATH:" "$path_ws"
+    printf "\033[1;32m%-22s\033[0m \033[1;37m%s (%s días)\033[0m\n" "EXPIRA:" "$datexp" "$diasuser"
+    linea_v2ray
+    echo -e "\033[1;33mENLACE URI (Copiar para importar):\033[0m\n"
+    echo -e "\033[1;36m${uri}\033[0m\n"
+    linea_v2ray
+    pausa_v2ray
 }
 
-# ── Listar Usuarios ───────────────────────────────────────────
-tc_v2_list_users() {
+# ── Eliminar Usuario ──────────────────────────────────────────
+delusr() {
     tc_clear
-    tc_title "USUARIOS V2RAY REGISTRADOS"
-
-    if [[ ! -f "$TC_V2_REG" || ! -s "$TC_V2_REG" ]]; then
-        tc_msg_warn "No hay usuarios registrados."
-        tc_pause
-        return
+    v2ray_title "ELIMINAR USUARIO V2RAY"
+    local cfg tmp
+    cfg="$(v2ray_config_file)"
+    [[ -n "$cfg" ]] && v2ray_ensure_legacy_config "$cfg" && cfg="/etc/v2ray/config.json"
+    [[ ! -s /etc/SSHPlus/RegV2ray ]] && echo -e "\033[1;31mNo hay usuarios V2RAY registrados.\033[0m" && pausa_v2ray && return
+    echo -e "\033[1;37m        USUARIOS REGISTRADOS A ELIMINAR\033[0m"
+    v2ray_line
+    printf "\033[1;37m%-20s %s\033[0m\n" "NOMBRE" "UUID"
+    mapfile -t uuid_list < <(awk -F'|' '{gsub(/ /,"",$1); if($1!="") print $1}' /etc/SSHPlus/RegV2ray)
+    mapfile -t user_list < <(awk -F'|' '{gsub(/^ +| +$/,"",$2); if($1!="") print $2}' /etc/SSHPlus/RegV2ray)
+    mapfile -t line_list < <(awk -F'|' '{gsub(/ /,"",$1); if($1!="") print NR}' /etc/SSHPlus/RegV2ray)
+    for i in "${!uuid_list[@]}"; do
+        printf "%b[%s]\033[0m \033[1;37m>\033[0m \033[1;37m%-20s\033[0m \033[1;33m%s\033[0m\n" "$SSHPLUS_NUM" "$((i+1))" "${user_list[$i]}" "${uuid_list[$i]}"
+    done
+    v2ray_opt "0" "CANCELAR"
+    v2ray_line
+    local uuid_sel
+    while true; do
+        printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR"
+        read -r uuid_sel
+        [[ "$uuid_sel" = "0" ]] && return
+        [[ "$uuid_sel" =~ ^[0-9]+$ ]] && [[ "$uuid_sel" -ge 1 ]] && [[ "$uuid_sel" -le "${#uuid_list[@]}" ]] && break
+        echo -e "\033[1;31mOpción no válida!\033[0m"
+        sleep 1
+    done
+    local uuidel="${uuid_list[$((uuid_sel-1))]}"
+    local nick_del="${user_list[$((uuid_sel-1))]}"
+    local linePre="${line_list[$((uuid_sel-1))]}"
+    sed -i "${linePre}d" /etc/SSHPlus/RegV2ray
+    if [[ -n "$cfg" ]] && grep -q "$uuidel" "$cfg"; then
+        if v2ray_require_jq; then
+            cp "$cfg" "$cfg.bak-$(date +%s)"
+            tmp="${cfg}.tmp"
+            jq --arg uuid "$uuidel" '
+              .inbounds |= map(
+                if ((.settings.clients? | type) == "array") then
+                  .settings.clients |= map(select(.id != $uuid))
+                else
+                  .
+                end
+              )
+            ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+            v2ray_restart_service
+        fi
     fi
-
-    printf '%b%-16s %-38s %-12s%b\n' "$TC_YELLOW" "USUARIO" "UUID" "EXPIRA" "$TC_NC"
-    tc_line
-
-    local nick uuid exp
-    while IFS='|' read -r nick uuid exp || [[ -n "$nick" ]]; do
-        nick="$(echo "$nick" | tr -d ' ')"
-        uuid="$(echo "$uuid" | tr -d ' ')"
-        exp="$(echo "$exp" | tr -d ' ')"
-        [[ -z "$nick" ]] && continue
-        printf '%b%-16s%b %b%-38s%b %b%-12s%b\n' \
-            "$TC_WHITE" "$nick" "$TC_NC" \
-            "$TC_DARK_GREEN" "$uuid" "$TC_NC" \
-            "$TC_PALE_GOLD" "$exp" "$TC_NC"
-    done < "$TC_V2_REG"
-
-    tc_line
-    tc_pause
+    echo ""
+    linea_v2ray
+    echo -e "\e[92m     USUARIO ${nick_del} ELIMINADO DE TODOS LOS PUERTOS "
+    linea_v2ray
+    pausa_v2ray
 }
 
-# ── Renovar Días de Usuario ───────────────────────────────────
-tc_v2_renew_user() {
+# ── Mostrar Usuarios ──────────────────────────────────────────
+mosusr_kk() {
     tc_clear
-    tc_title "RENOVAR DÍAS DE USUARIO V2RAY"
-
-    if [[ ! -f "$TC_V2_REG" || ! -s "$TC_V2_REG" ]]; then
-        tc_msg_warn "No hay usuarios registrados."
-        tc_pause
+    v2ray_title "USUARIOS V2RAY REGISTRADOS"
+    local VPSsec=$(date +%s)
+    if [[ ! -s /etc/SSHPlus/RegV2ray ]]; then
+        echo -e "----- NINGÚN USUARIO REGISTRADO -----"
+        v2ray_line
+        pausa_v2ray
         return
     fi
-
-    local -a users_arr=() uuids_arr=() exps_arr=()
-    local idx=0
-    while IFS='|' read -r nick uuid exp || [[ -n "$nick" ]]; do
-        nick="$(echo "$nick" | tr -d ' ')"
-        uuid="$(echo "$uuid" | tr -d ' ')"
-        exp="$(echo "$exp" | tr -d ' ')"
-        [[ -z "$nick" ]] && continue
-        users_arr+=("$nick")
-        uuids_arr+=("$uuid")
-        exps_arr+=("$exp")
-        idx=$((idx + 1))
-        tc_opt "$idx" "${nick} (Expira: ${exp})"
-    done < "$TC_V2_REG"
-
-    tc_line
-    tc_opt "0" "$(_t 'cancel')"
-    tc_line
-    tc_prompt "Seleccione usuario a renovar"
-    read -r sel
-
-    [[ "$sel" == "0" || -z "$sel" ]] && return
-
-    if ! [[ "$sel" =~ ^[0-9]+$ ]] || (( sel < 1 || sel > ${#users_arr[@]} )); then
-        tc_msg_err "Opción no válida."
-        tc_pause
-        return
-    fi
-
-    local sel_idx=$((sel - 1))
-    local sel_user="${users_arr[$sel_idx]}"
-    local sel_uuid="${uuids_arr[$sel_idx]}"
-    local sel_exp="${exps_arr[$sel_idx]}"
-
-    printf '\n%bUsuario:%b %b%s%b  %bExpiración actual:%b %b%s%b\n' \
-        "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$sel_user" "$TC_NC" \
-        "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "$sel_exp" "$TC_NC"
-
-    printf '%bDías a añadir [1-365] (Enter = 30):%b ' "$TC_DARK_GREEN" "$TC_NC"
-    read -r add_d
-    [[ -z "$add_d" ]] && add_d="30"
-
-    local new_exp
-    new_exp="$(date '+%Y-%m-%d' -d "${sel_exp} +${add_d} days" 2>/dev/null || date '+%Y-%m-%d' -d "+${add_d} days")"
-
-    sed -i "/^[[:space:]]*${sel_user}[[:space:]]*|/d" "$TC_V2_REG"
-    echo "${sel_user} | ${sel_uuid} | ${new_exp}" >> "$TC_V2_REG"
-
-    tc_msg_ok "¡Usuario '$sel_user' renovado hasta el $new_exp!"
-    tc_pause
+    printf "\033[1;37m%-36s %-14s %s\033[0m\n" "UUID" "USUARIO" "EXPIRA"
+    printf "\033[1;37m------------------------------------------------------------\033[0m\n"
+    while IFS='|' read -r uuid user expire; do
+        uuid="$(echo "$uuid" | xargs)"
+        user="$(echo "$user" | xargs)"
+        expire="$(echo "$expire" | xargs)"
+        [[ -z "$uuid" ]] && continue
+        if [[ -n "$expire" ]]; then
+            DataSec=$(date +%s --date="$expire" 2>/dev/null || echo "")
+            if [[ -n "$DataSec" ]]; then
+                [[ "$VPSsec" -gt "$DataSec" ]] && EXPTIME="\033[1;31mEXPIRADO\033[0m" || EXPTIME="\033[1;32m$(($(($DataSec - $VPSsec)) / 86400)) Días\033[0m"
+            else
+                EXPTIME="\033[1;31mS/R\033[0m"
+            fi
+        else
+            EXPTIME="\033[1;31mS/R\033[0m"
+        fi
+        printf "\033[1;33m%s\033[0m %b>\033[0m \033[1;37m%s\033[0m %b>\033[0m %b\n" "$uuid" "$SSHPLUS_CYAN" "$user" "$SSHPLUS_CYAN" "$EXPTIME"
+    done < /etc/SSHPlus/RegV2ray
+    v2ray_line
+    pausa_v2ray
 }
 
-# ── Modificar UUID ────────────────────────────────────────────
-tc_v2_modify_uuid() {
+# ── Modificar JSON / UUID / Path ──────────────────────────────
+editar_json_v2ray() {
     tc_clear
-    tc_title "MODIFICAR UUID V2RAY"
+    linea_v2ray
+    v2ray_title "MODIFICAR JSON V2RAY"
+    linea_v2ray
+    local cfg="$(v2ray_config_file)"
+    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo existe config.json de V2Ray/Xray\033[0m" && pausa_v2ray && return
+    v2ray_ensure_legacy_config "$cfg"
+    cfg="/etc/v2ray/config.json"
+    cp "$cfg" "$cfg.bak-$(date +%s)"
+    if command -v nano >/dev/null 2>&1; then
+        nano "$cfg"
+    else
+        vi "$cfg"
+    fi
+    v2ray_restart_service
+    echo -e "\033[1;32mJSON actualizado y servicio V2RAY reiniciado.\033[0m"
+    pausa_v2ray
+}
 
-    if [[ ! -f "$TC_V2_REG" || ! -s "$TC_V2_REG" ]]; then
-        tc_msg_warn "No hay usuarios registrados."
-        tc_pause
+modificar_uuid_v2ray() {
+    tc_clear
+    v2ray_title "MODIFICAR UUID V2RAY"
+    local cfg tmp
+    cfg="$(v2ray_config_file)"
+    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo existe config.json de V2Ray/Xray\033[0m" && pausa_v2ray && return
+    v2ray_ensure_legacy_config "$cfg"
+    cfg="/etc/v2ray/config.json"
+    if ! v2ray_require_jq; then
+        echo -e "\033[1;31mjq no está instalado.\033[0m"
+        pausa_v2ray
         return
     fi
-
-    local -a users_arr=() uuids_arr=()
-    local idx=0
-    while IFS='|' read -r nick uuid exp || [[ -n "$nick" ]]; do
-        nick="$(echo "$nick" | tr -d ' ')"
-        uuid="$(echo "$uuid" | tr -d ' ')"
-        exp="$(echo "$exp" | tr -d ' ')"
-        [[ -z "$nick" ]] && continue
-        users_arr+=("$nick")
-        uuids_arr+=("$uuid")
-        idx=$((idx + 1))
-        tc_opt "$idx" "${nick} (${uuid})"
-    done < "$TC_V2_REG"
-
-    tc_line
-    tc_opt "0" "$(_t 'cancel')"
-    tc_line
-    tc_prompt "Seleccione usuario"
-    read -r sel
-
-    [[ "$sel" == "0" || -z "$sel" ]] && return
-
-    if ! [[ "$sel" =~ ^[0-9]+$ ]] || (( sel < 1 || sel > ${#users_arr[@]} )); then
-        tc_msg_err "Opción no válida."
-        tc_pause
+    [[ ! -s /etc/SSHPlus/RegV2ray ]] && echo -e "\033[1;31mNo hay usuarios V2RAY registrados.\033[0m" && pausa_v2ray && return
+    echo -e "\033[1;37m        SELECCIONAR USUARIO (UUID) PARA MODIFICAR\033[0m"
+    v2ray_line
+    mapfile -t uuid_list < <(awk -F'|' '{gsub(/ /,"",$1); if($1!="") print $1}' /etc/SSHPlus/RegV2ray)
+    for i in "${!uuid_list[@]}"; do
+        v2ray_opt "$((i+1))" "${uuid_list[$i]}"
+    done
+    v2ray_opt "0" "CANCELAR"
+    v2ray_line
+    local uuid_sel
+    while true; do
+        printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR"
+        read -r uuid_sel
+        [[ "$uuid_sel" = "0" ]] && return
+        [[ "$uuid_sel" =~ ^[0-9]+$ ]] && [[ "$uuid_sel" -ge 1 ]] && [[ "$uuid_sel" -le "${#uuid_list[@]}" ]] && break
+        echo -e "\033[1;31mOpción no válida!\033[0m"
+        sleep 1
+    done
+    local uuid_actual="${uuid_list[$((uuid_sel-1))]}"
+    printf '%bNuevo UUID (Enter para generar):%b ' "$TC_DARK_GREEN" "$TC_NC" && read -r uuid_nuevo
+    [[ -z "$uuid_nuevo" ]] && uuid_nuevo="$(uuidgen 2>/dev/null || tc_gen_uuid)"
+    if ! v2ray_valid_uuid "$uuid_nuevo"; then
+        echo -e "\033[1;31mUUID no válido.\033[0m"
+        pausa_v2ray
         return
     fi
-
-    local sel_idx=$((sel - 1))
-    local sel_user="${users_arr[$sel_idx]}"
-    local old_uuid="${uuids_arr[$sel_idx]}"
-
-    printf '\n%bUsuario:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$sel_user" "$TC_NC"
-    printf '%bUUID Actual:%b %b%s%b\n\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "$old_uuid" "$TC_NC"
-
-    printf '%bNuevo UUID (Enter para generar automático):%b ' "$TC_DARK_GREEN" "$TC_NC"
-    read -r new_uuid
-    [[ -z "$new_uuid" ]] && new_uuid="$(tc_gen_uuid)"
-
-    local tmp="${TC_V2_CONF}.tmp"
-    jq --arg old "$old_uuid" --arg new "$new_uuid" '
+    cp "$cfg" "$cfg.bak-$(date +%s)"
+    tmp="${cfg}.tmp"
+    jq --arg old "$uuid_actual" --arg new "$uuid_nuevo" '
       .inbounds |= map(
         if ((.settings.clients? | type) == "array") then
           .settings.clients |= map(if .id == $old then .id = $new else . end)
@@ -596,225 +834,158 @@ tc_v2_modify_uuid() {
           .
         end
       )
-    ' "$TC_V2_CONF" > "$tmp" && mv "$tmp" "$TC_V2_CONF"
-
-    sed -i "s/${old_uuid}/${new_uuid}/g" "$TC_V2_REG"
-    tc_v2_restart
-
-    tc_msg_ok "UUID modificado correctamente."
-    printf '%bNuevo UUID:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$new_uuid" "$TC_NC"
-    tc_pause
+    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+    sed -i "s/$uuid_actual/$uuid_nuevo/g" /etc/SSHPlus/RegV2ray
+    v2ray_restart_service
+    echo -e "\033[1;32mUUID modificado correctamente.\033[0m"
+    echo -e "\033[1;33mNuevo UUID: \033[1;37m$uuid_nuevo\033[0m"
+    pausa_v2ray
 }
 
-# ── Eliminar Usuario ──────────────────────────────────────────
-tc_v2_del_user() {
+modificar_path_v2ray() {
+    local cfg tmp cur_path new_path
     tc_clear
-    tc_title "ELIMINAR USUARIO V2RAY"
-
-    if [[ ! -f "$TC_V2_REG" || ! -s "$TC_V2_REG" ]]; then
-        tc_msg_warn "No hay usuarios registrados."
-        tc_pause
+    v2ray_title "MODIFICAR PATH WEBSOCKET V2RAY"
+    cfg="$(v2ray_config_file)"
+    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontró config.json de V2Ray/Xray.\033[0m" && pausa_v2ray && return
+    v2ray_ensure_legacy_config "$cfg"
+    cfg="/etc/v2ray/config.json"
+    if ! v2ray_require_jq; then
+        echo -e "\033[1;31mjq no está instalado.\033[0m"
+        pausa_v2ray
         return
     fi
-
-    local -a users_arr=() uuids_arr=()
-    local idx=0
-    while IFS='|' read -r nick uuid exp || [[ -n "$nick" ]]; do
-        nick="$(echo "$nick" | tr -d ' ')"
-        uuid="$(echo "$uuid" | tr -d ' ')"
-        [[ -z "$nick" ]] && continue
-        users_arr+=("$nick")
-        uuids_arr+=("$uuid")
-        idx=$((idx + 1))
-        tc_opt "$idx" "${nick}"
-    done < "$TC_V2_REG"
-
-    tc_line
-    tc_opt "0" "$(_t 'cancel')"
-    tc_line
-    tc_prompt "Seleccione usuario a eliminar"
-    read -r sel
-
-    [[ "$sel" == "0" || -z "$sel" ]] && return
-
-    if ! [[ "$sel" =~ ^[0-9]+$ ]] || (( sel < 1 || sel > ${#users_arr[@]} )); then
-        tc_msg_err "Opción no válida."
-        tc_pause
-        return
-    fi
-
-    local sel_idx=$((sel - 1))
-    local sel_user="${users_arr[$sel_idx]}"
-    local target_uuid="${uuids_arr[$sel_idx]}"
-
-    if ! tc_confirm "¿Eliminar al usuario '$sel_user'?"; then
-        return
-    fi
-
-    local tmp="${TC_V2_CONF}.tmp"
-    jq --arg id "$target_uuid" '
+    cur_path="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // "/v2ray"' "$cfg" 2>/dev/null)"
+    echo -e "${SSHPLUS_DARK_GREEN}PATH ACTUAL:${SCOLOR} \033[1;37m$cur_path\033[0m"
+    printf '%bNUEVO PATH [ej: /tunnelcore]:%b ' "$SSHPLUS_DARK_GREEN" "$SCOLOR" && read -r new_path
+    [[ -z "$new_path" ]] && return
+    [[ "$new_path" != /* ]] && new_path="/$new_path"
+    cp "$cfg" "$cfg.bak-$(date +%s)"
+    tmp="${cfg}.tmp"
+    jq --arg p "$new_path" '
       .inbounds |= map(
-        if ((.settings.clients? | type) == "array") then
-          .settings.clients |= map(select(.id != $id))
+        if .streamSettings.wsSettings? then
+          .streamSettings.wsSettings.path = $p
         else
           .
         end
       )
-    ' "$TC_V2_CONF" > "$tmp" && mv "$tmp" "$TC_V2_CONF"
-
-    sed -i "/^[[:space:]]*${sel_user}[[:space:]]*|/d" "$TC_V2_REG"
-    tc_v2_restart
-
-    tc_msg_ok "Usuario '$sel_user' eliminado de V2Ray."
-    tc_pause
+    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+    v2ray_restart_service
+    echo -e "\033[1;32mPath modificado a $new_path y servicio reiniciado.\033[0m"
+    pausa_v2ray
 }
 
-# ── Desinstalación Profunda Total de V2Ray ─────────────────────
-tc_v2_uninstall_all() {
-    tc_clear
-    tc_title "DESINSTALAR V2RAY / XRAY"
-
-    if ! tc_confirm "¿Está seguro de desinstalar y limpiar por completo V2Ray?"; then
-        return
-    fi
-
-    tc_msg_ok "Deteniendo y eliminando servicios..."
-    systemctl stop v2ray >/dev/null 2>&1 || true
-    systemctl stop xray >/dev/null 2>&1 || true
-    systemctl disable v2ray >/dev/null 2>&1 || true
-    systemctl disable xray >/dev/null 2>&1 || true
-
-    if command -v v2ray >/dev/null 2>&1; then
-        v2ray uninstall >/dev/null 2>&1 || true
-    fi
-
-    pkill -9 -x v2ray >/dev/null 2>&1 || true
-    pkill -9 -x xray >/dev/null 2>&1 || true
-
-    rm -f /etc/systemd/system/xray.service /etc/systemd/system/v2ray.service /lib/systemd/system/v2ray.service /lib/systemd/system/xray.service /etc/systemd/system/multi-v2ray.service
-    systemctl daemon-reload >/dev/null 2>&1 || true
-
-    rm -f /usr/local/bin/xray /usr/local/bin/v2ray /usr/bin/v2ray /usr/bin/xray /bin/v2ray /bin/xray
-    rm -rf /etc/v2ray /usr/local/etc/v2ray /etc/xray /usr/local/etc/xray /etc/tunnelcore/v2ray /var/log/v2ray /var/log/xray /root/.v2ray /root/.xray
-
-    tc_msg_ok "¡V2Ray ha sido desinstalado por completo!"
-    tc_pause
+# ── Submenú Administración de Usuarios ────────────────────────
+menu_usuarios_v2ray() {
+    while true; do
+        tc_clear
+        v2ray_title "ADMINISTRAR USUARIOS V2RAY"
+        v2ray_opt "1" "AÑADIR USUARIO | UUID"
+        v2ray_opt "2" "ELIMINAR USUARIO V2RAY"
+        v2ray_opt "3" "USUARIOS REGISTRADOS"
+        v2ray_opt "4" "INFORMACIÓN DE CUENTA"
+        v2ray_opt "5" "ESTADÍSTICAS DE CONSUMO"
+        v2ray_line
+        v2ray_opt "0" "VOLVER"
+        v2ray_line
+        printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR"
+        read -r usropt
+        case "$usropt" in
+            1|01) addusr ;;
+            2|02) delusr ;;
+            3|03) mosusr_kk ;;
+            4|04) infocuenta ;;
+            5|05) stats ;;
+            0|00) break ;;
+            *) echo -e "\033[1;31mOpción no válida!\033[0m"; sleep 1 ;;
+        esac
+    done
 }
 
-# ── Alternar Estado del Servicio ──────────────────────────────
-tc_v2_toggle_service() {
-    if tc_v2_is_running; then
-        systemctl stop xray >/dev/null 2>&1 || systemctl stop v2ray >/dev/null 2>&1 || true
-        tc_msg_ok "Servicio V2Ray detenido [OFF]."
-    else
-        tc_v2_free_conflicts
-        systemctl daemon-reload >/dev/null 2>&1 || true
-        systemctl enable xray >/dev/null 2>&1 || true
-        systemctl restart xray >/dev/null 2>&1 || systemctl restart v2ray >/dev/null 2>&1 || true
-        sleep 0.5
-        if tc_v2_is_running; then
-            tc_msg_ok "Servicio V2Ray iniciado [ON] correctamente."
-        else
-            tc_msg_warn "El servicio intentó iniciar pero no está activo."
-            printf '\n%bÚltimos logs de error:%b\n' "$TC_YELLOW" "$TC_NC"
-            journalctl -u xray -n 10 --no-pager 2>/dev/null || journalctl -u v2ray -n 10 --no-pager 2>/dev/null
-        fi
-    fi
-    tc_pause
+# ── Submenú Configuración de V2Ray ────────────────────────────
+ajustes_v2ray() {
+    while true; do
+        tc_clear
+        v2ray_title "CONFIGURACIÓN DE V2RAY"
+        v2ray_opt "1" "CAMBIAR PROTOCOLO"
+        v2ray_opt "2" "ACTIVAR TLS"
+        v2ray_opt "3" "CAMBIAR PUERTO V2RAY"
+        v2ray_opt "4" "MODIFICAR JSON V2RAY"
+        v2ray_opt "5" "MODIFICAR UUID V2RAY"
+        v2ray_opt "6" "MODIFICAR PATH V2RAY"
+        v2ray_opt "7" "AGREGAR PUERTO V2RAY"
+        v2ray_line
+        v2ray_opt "0" "VOLVER"
+        v2ray_line
+        printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR"
+        read -r selection
+        case "$selection" in
+            1) protocolv2ray ;;
+            2) tls ;;
+            3) portv ;;
+            4) editar_json_v2ray ;;
+            5) modificar_uuid_v2ray ;;
+            6) modificar_path_v2ray ;;
+            7) agregar_puerto_v2ray ;;
+            0) break ;;
+            *) echo -e "\033[1;31mOpción no válida!\033[0m"; sleep 1 ;;
+        esac
+    done
 }
 
-# ── Configurar Dominio y Certificado TLS ──────────────────────
-tc_v2_config_tls() {
-    tc_clear
-    tc_title "CONFIGURAR DOMINIO Y TLS"
-    tc_v2_load_env
-
-    printf '%bDominio actual:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${V2_DOMAIN:-No configurado}" "$TC_NC"
-    printf '%bSNI / Bug actual:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${V2_SNI:-No configurado}" "$TC_NC"
-    tc_line
-
-    printf '%bNuevo Dominio CDN / Host:%b ' "$TC_DARK_GREEN" "$TC_NC"
-    read -r nd
-    [[ -n "$nd" ]] && V2_DOMAIN="$nd"
-
-    printf '%bNuevo SNI / Bug Host [Enter para usar %s]:%b ' "$TC_DARK_GREEN" "${V2_DOMAIN:-$nd}" "$TC_NC"
-    read -r ns
-    [[ -n "$ns" ]] && V2_SNI="$ns" || V2_SNI="$V2_DOMAIN"
-
-    tc_v2_save_env
-    tc_v2_restart
-    tc_msg_ok "Configuración TLS actualizada."
-    tc_pause
-}
-
-# ── Menú Principal V2Ray ───────────────────────────────────────
+# ── Menú Principal V2Ray (1:1 Rufus / NoxuraSSH) ───────────────
 tc_xray_menu() {
     while true; do
         tc_clear
-        tc_v2_load_env
-        tc_title "GESTIÓN DE V2RAY / XRAY $(tc_v2_status_mark)"
-
-        if ! tc_v2_is_installed; then
-            tc_opt "1" "CONFIGURAR V2RAY DESDE CERO (ASISTENTE COMPLETO)"
-            tc_line
-            tc_opt "0" "$(_t 'back')"
-            tc_line
-            tc_prompt
-            read -r opt
-            case "$opt" in
-                1|01) tc_v2_setup_wizard ;;
-                0|00) break ;;
-                *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
-            esac
-        else
-            printf '%bPUERTOS:%b %bHTTP %s | TLS %s%b  %bPATH:%b %b%s%b\n' \
-                "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${V2_HTTP_PORT:-80}" "${V2_TLS_PORT:-443}" "$TC_NC" \
-                "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${V2_PATH:-/tunnelcore}" "$TC_NC"
-            printf '%bDOMINIO CDN:%b %b%s%b  %bESTADO:%b %b\n' \
-                "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${V2_DOMAIN:-No configurado}" "$TC_NC" \
-                "$TC_DARK_GREEN" "$TC_NC" "$(tc_v2_status_mark)"
-            tc_line
-            tc_opt "1" "AGREGAR USUARIO V2RAY"
-            tc_opt "2" "LISTAR USUARIOS REGISTRADOS"
-            tc_opt "3" "RENOVAR DÍAS DE USUARIO"
-            tc_opt "4" "MODIFICAR UUID DE USUARIO"
-            tc_opt "5" "ELIMINAR USUARIO"
-            tc_line
-            tc_opt "6" "INICIAR / PARAR SERVICIO" "  $(tc_v2_status_mark)"
-            tc_opt "7" "CONFIGURAR DOMINIO CDN / HOST TLS"
-            tc_opt "8" "REINICIAR SERVICIO V2RAY"
-            tc_opt "9" "VER LOGS EN TIEMPO REAL"
-            tc_opt "10" "RECONFIGURAR V2RAY DESDE CERO"
-            tc_opt "11" "DESINSTALAR V2RAY"
-            tc_line
-            tc_opt "0" "$(_t 'back')"
-            tc_line
-            tc_prompt
-            read -r opt
-
-            case "$opt" in
-                1|01) tc_v2_add_user_simple ;;
-                2|02) tc_v2_list_users ;;
-                3|03) tc_v2_renew_user ;;
-                4|04) tc_v2_modify_uuid ;;
-                5|05) tc_v2_del_user ;;
-                6|06) tc_v2_toggle_service ;;
-                7|07) tc_v2_config_tls ;;
-                8|08)
-                    tc_v2_restart
-                    tc_msg_ok "Servicio V2Ray reiniciado."
-                    tc_pause
-                    ;;
-                9|09)
-                    tc_clear
-                    tc_title "LOGS V2RAY EN VIVO (Ctrl+C para salir)"
-                    journalctl -u xray -f --no-pager 2>/dev/null || journalctl -u v2ray -f --no-pager 2>/dev/null
-                    ;;
-                10) tc_v2_setup_wizard ;;
-                11) tc_v2_uninstall_all ;;
-                0|00) break ;;
-                *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
-            esac
+        v2ray_title "GESTIÓN DE V2RAY"
+        local v2ray_running=0
+        if v2ray_service_running; then
+            v2ray_running=1
         fi
+
+        if [[ "$v2ray_running" = "1" ]]; then
+            printf '%bSERVICIO:%b %bV2RAY%b %b[ACTIVADO]%b\n' "$SSHPLUS_DARK_GREEN" "$SCOLOR" "$TC_YELLOW" "$SCOLOR" "$TC_GREEN" "$SCOLOR"
+            v2ray_line
+            v2ray_opt "1" "ADMINISTRAR USUARIOS V2RAY"
+            v2ray_opt "2" "CONFIGURACIÓN DE V2RAY"
+            v2ray_opt "3" "REINICIAR SERVICIO V2RAY"
+            v2ray_opt "4" "REINSTALAR V2RAY"
+            v2ray_opt "5" "DESINSTALAR V2RAY"
+            v2ray_line
+            v2ray_opt "0" "VOLVER"
+        else
+            printf '%bSERVICIO:%b %bV2RAY%b %b[DESACTIVADO]%b\n' "$SSHPLUS_DARK_GREEN" "$SCOLOR" "$TC_YELLOW" "$SCOLOR" "$TC_RED" "$SCOLOR"
+            v2ray_line
+            v2ray_opt "1" "INSTALAR V2RAY"
+            v2ray_line
+            v2ray_opt "0" "VOLVER"
+        fi
+        v2ray_line
+        printf '%bOpción:%b ' "$SSHPLUS_CYAN" "$SCOLOR"
+        read -r x
+
+        if [[ "$v2ray_running" != "1" ]]; then
+            case "$x" in
+                1|01) intallv2ray ;;
+                0|00) break ;;
+                *) echo -e "\033[1;31mOpción no válida!\033[0m"; sleep 1 ;;
+            esac
+            continue
+        fi
+
+        case "$x" in
+            1|01) menu_usuarios_v2ray ;;
+            2|02) ajustes_v2ray ;;
+            3|03)
+                v2ray_restart_service
+                echo -e "\033[1;32mServicio V2RAY reiniciado correctamente.\033[0m"
+                pausa_v2ray
+                ;;
+            4|04) intallv2ray ;;
+            5|05) unistallv2 ;;
+            0|00) break ;;
+            *) echo -e "\033[1;31mOpción no válida!\033[0m"; sleep 1 ;;
+        esac
     done
 }
