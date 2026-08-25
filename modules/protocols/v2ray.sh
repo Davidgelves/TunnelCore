@@ -49,8 +49,22 @@ v2ray_config_file() {
 
 v2ray_ensure_legacy_config() {
     local cfg="$1"
-    [[ -z "$cfg" || "$cfg" == "/etc/v2ray/config.json" ]] && return 0
-    mkdir -p /etc/v2ray /etc/tunnelcore/v2ray
+    [[ -z "$cfg" ]] && return 0
+    mkdir -p /etc/v2ray /etc/tunnelcore/v2ray /usr/local/etc/xray
+
+    # Inyectar routing si falta en config.json para compatibilidad con v2ray_util
+    if v2ray_require_jq; then
+        for f in "$cfg" /etc/v2ray/config.json /usr/local/etc/xray/config.json /etc/tunnelcore/v2ray/config.json; do
+            if [[ -f "$f" ]]; then
+                if ! jq -e '.routing.rules' "$f" >/dev/null 2>&1; then
+                    local tmp="${f}.tmp"
+                    jq '. + {"routing": {"domainStrategy": "IPIfNonMatch", "rules": [{"type": "field", "ip": ["geoip:private"], "outboundTag": "blocked"}]}}' "$f" > "$tmp" 2>/dev/null && mv "$tmp" "$f" 2>/dev/null || true
+                fi
+            fi
+        done
+    fi
+
+    [[ "$cfg" == "/etc/v2ray/config.json" ]] && return 0
     ln -sf "$cfg" /etc/v2ray/config.json 2>/dev/null || cp -f "$cfg" /etc/v2ray/config.json 2>/dev/null || true
 }
 
@@ -98,17 +112,25 @@ v2ray_valid_port() {
 }
 
 v2ray_show_info() {
-    local cfg
+    local cfg="$(v2ray_config_file)"
+    [[ -n "$cfg" ]] && v2ray_ensure_legacy_config "$cfg"
+
+    local show_clean=0
     if command -v v2ray >/dev/null 2>&1; then
-        v2ray info
-        return 0
-    fi
-    cfg="$(v2ray_config_file)"
-    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontró config.json de V2Ray/Xray.\033[0m" && return 1
-    if v2ray_require_jq; then
-        jq -r '.inbounds[]? | "PUERTO: \(.port) | PROTOCOLO: \(.protocol // "desconocido") | RED: \(.streamSettings.network // "tcp")"' "$cfg"
+        if ! v2ray info 2>&1 | grep -qv "Traceback"; then
+            show_clean=1
+        fi
     else
-        grep -E '"port"|"protocol"|"network"' "$cfg"
+        show_clean=1
+    fi
+
+    if [[ "$show_clean" -eq 1 ]]; then
+        [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontró config.json de V2Ray/Xray.\033[0m" && return 1
+        if v2ray_require_jq; then
+            jq -r '.inbounds[]? | "PUERTO: \(.port) | PROTOCOLO: \(.protocol // "desconocido") | RED: \(.streamSettings.network // "tcp")"' "$cfg" 2>/dev/null || true
+        else
+            grep -E '"port"|"protocol"|"network"' "$cfg" 2>/dev/null || true
+        fi
     fi
 }
 
