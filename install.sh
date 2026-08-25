@@ -72,11 +72,21 @@ if ! grep -q "alias menu=" /root/.bashrc 2>/dev/null; then
     echo "alias menu='tunnelcore'" >> /root/.bashrc
 fi
 
-# 5. Directorios de configuración
-mkdir -p /etc/tunnelcore/passwords /etc/tunnelcore/backups
+# 5. Directorios de configuración y sincronización de binarios
+mkdir -p /etc/tunnelcore/passwords /etc/tunnelcore/backups /etc/tunnelcore/proxy
 chmod 700 /etc/tunnelcore/passwords
 [[ -f /etc/tunnelcore/users.db ]] || touch /etc/tunnelcore/users.db
 chmod 600 /etc/tunnelcore/users.db
+
+if [[ -f "${INSTALL_DIR}/modules/protocols/proxy_server.py" ]]; then
+    cp -f "${INSTALL_DIR}/modules/protocols/proxy_server.py" /etc/tunnelcore/proxy/proxy_server.py
+    chmod +x /etc/tunnelcore/proxy/proxy_server.py
+fi
+
+if systemctl is-active --quiet tunnelcore-proxy 2>/dev/null; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl restart tunnelcore-proxy >/dev/null 2>&1 || true
+fi
 
 echo ""
 echo -e "${GREEN}============================================================${NC}"

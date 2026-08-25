@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 # ═══════════════════════════════════════════════════════════════
-#  TunnelCore — Proxy HTTP / SOCKS (Payload / Injector / Auto)
+#  TunnelCore — Proxy HTTP / SOCKS (Payload / WebSocket / Auto)
 #  Optimizado: socket.listen(128), thread cleanup, modo AUTO/NEUTRO
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
@@ -44,7 +44,7 @@ def get_response_bytes(status, banner, text_request=""):
     # Modo AUTO / NEUTRO: Detecta automáticamente WebSocket o Payload 200
     if st == "AUTO" or st == "NEUTRO" or st == "AUTO/NEUTRO":
         low = text_request.lower()
-        if "upgrade: websocket" in low or "sec-websocket-key" in low:
+        if "websocket" in low or "upgrade" in low or "sec-websocket" in low:
             return (
                 b"HTTP/1.1 101 Switching Protocols\r\n"
                 b"Upgrade: websocket\r\n"
@@ -117,7 +117,7 @@ class Server:
         self.soc.listen(128)
         self.running = True
 
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] TunnelCore Proxy escuchando en {self.host}:{self.port} (Status {HTTP_STATUS})")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] TunnelCore Proxy en {self.host}:{self.port} (Status {HTTP_STATUS})")
 
         try:
             while self.running:
@@ -198,13 +198,14 @@ class ConnectionHandler(threading.Thread):
             allowed = (
                 host_port.startswith("127.0.0.1")
                 or host_port.startswith("localhost")
+                or host_port.startswith("0.0.0.0")
             )
 
             if not allowed:
                 self.client.sendall(b"HTTP/1.1 403 Forbidden\r\n\r\n")
                 return
 
-            # Obtener respuesta adecuada (dinámica en modo AUTO o fija según status)
+            # Respuesta según modo (AUTO detecta websocket vs payload)
             response_bytes = get_response_bytes(HTTP_STATUS, CUSTOM_BANNER, text)
 
             self._connect_target(host_port)
