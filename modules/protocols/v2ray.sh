@@ -1540,6 +1540,177 @@ EOF
     menu_xray_xhttp
     }
 
+    crear_protocolo_v2ray() {
+    local opt proto network tls link_tls port ext_port path domain host_header sni uuid user exp cfg uri enc_path vmess_json vmess_b64
+    clear
+    v2ray_title "CREAR PROTOCOLO V2RAY / XRAY"
+    if ! xhttp_is_installed; then
+    echo -e "\033[1;33mXray-core no esta instalado. Primero se abrira el instalador base.\033[0m"
+    pausa_v2ray
+    instalar_xray_xhttp
+    return
+    fi
+    v2ray_opt "1" "VLESS + WebSocket CDN TLS 443"
+    v2ray_opt "2" "VLESS + WebSocket sin TLS 80"
+    v2ray_opt "3" "VMess + WebSocket sin TLS 80"
+    v2ray_opt "4" "VLESS + XHTTP sin TLS 8443"
+    v2ray_line
+    v2ray_opt "0" "VOLVER"
+    v2ray_line
+    selection=$(selection_fun 4)
+    [[ "$selection" = "0" ]] && fun_v2raymanager && return
+
+    case "$selection" in
+      1) proto="vless"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/v2ray" ;;
+      2) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
+      3) proto="vmess"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
+      4) proto="vless"; network="xhttp"; tls="none"; link_tls="none"; port="8443"; ext_port="8443"; path="/xhttp" ;;
+    esac
+
+    echo -ne "${SSHPlus_DARK_GREEN}USUARIO [Enter = user]:${SCOLOR} " && read user
+    user="$(printf '%s' "$user" | sed -e 's/[^a-zA-Z0-9_. -]//g')"
+    [[ -z "$user" ]] && user="user"
+    echo -ne "${SSHPlus_DARK_GREEN}PUERTO [Enter = $port]:${SCOLOR} " && read custom_port
+    [[ -n "$custom_port" ]] && port="$custom_port"
+    [[ "$link_tls" == "none" ]] && ext_port="$port"
+    if ! v2ray_valid_port "$port"; then
+    echo -e "\033[1;31mPuerto no valido. Use 1-65535.\033[0m"
+    pausa_v2ray
+    fun_v2raymanager
+    return
+    fi
+    echo -ne "${SSHPlus_DARK_GREEN}PATH [Enter = $path]:${SCOLOR} " && read custom_path
+    [[ -n "$custom_path" ]] && path="$custom_path"
+    path="$(printf '%s' "$path" | tr -d '"\\[:space:]')"
+    [[ "$path" != /* ]] && path="/$path"
+
+    domain="$(cat /etc/SSHPlus/v2ray/domain 2>/dev/null || cat /etc/SSHPlus/Dominio 2>/dev/null || echo "")"
+    if [[ "$link_tls" == "tls" ]]; then
+    echo -ne "${SSHPlus_DARK_GREEN}DOMINIO/SNI [${domain:-obligatorio}]:${SCOLOR} " && read input_domain
+    [[ -n "$input_domain" ]] && domain="$input_domain"
+    domain="$(printf '%s' "$domain" | tr -d '"\\[:space:]')"
+    if [[ -z "$domain" ]]; then
+    echo -e "\033[1;31mPara TLS necesita dominio/SNI.\033[0m"
+    pausa_v2ray
+    fun_v2raymanager
+    return
+    fi
+    mkdir -p /etc/SSHPlus/v2ray
+    echo "$domain" > /etc/SSHPlus/v2ray/domain
+    host_header="$domain"
+    sni="$domain"
+    else
+    domain="$(cat /etc/SSHPlus/IP 2>/dev/null || cat /etc/IP 2>/dev/null || v2ray_public_ip)"
+    host_header=""
+    sni=""
+    fi
+
+    uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+    exp="$(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || date '+%Y-%m-%d')"
+    cfg="/usr/local/etc/xray/config.json"
+    mkdir -p /usr/local/etc/xray /etc/SSHPlus/v2ray /etc/v2ray /etc/SSHPlus
+    [[ -f "$cfg" ]] && cp "$cfg" "$cfg.bak-$(date +%s)"
+
+    if [[ "$proto" == "vmess" ]]; then
+    cat > "$cfg" <<EOF
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "tag": "vmess-ws",
+      "listen": "0.0.0.0",
+      "port": ${port},
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          { "id": "${uuid}", "alterId": 0 }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": { "path": "${path}" }
+      }
+    }
+  ],
+  "outbounds": [
+    { "protocol": "freedom", "tag": "direct" }
+  ]
+}
+EOF
+    else
+    cat > "$cfg" <<EOF
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "tag": "${proto}-${network}",
+      "listen": "0.0.0.0",
+      "port": ${port},
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          { "id": "${uuid}" }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "${network}",
+        "security": "${tls}",
+        "${network}Settings": { "path": "${path}" }
+      }
+    }
+  ],
+  "outbounds": [
+    { "protocol": "freedom", "tag": "direct" }
+  ]
+}
+EOF
+    fi
+
+    ln -sf "$cfg" /etc/v2ray/config.json 2>/dev/null || true
+    if /usr/local/bin/xray test -config "$cfg" >/dev/null 2>&1; then
+    systemctl restart xray >/dev/null 2>&1
+    else
+    echo -e "\033[1;31mEl config.json generado no paso la validacion de Xray.\033[0m"
+    pausa_v2ray
+    fun_v2raymanager
+    return
+    fi
+    grep -q "$uuid" /etc/SSHPlus/RegV2ray 2>/dev/null || echo "  $uuid | $user | $exp " >> /etc/SSHPlus/RegV2ray
+
+    enc_path="$(v2ray_urlencode_path "$path")"
+    if [[ "$proto" == "vmess" ]]; then
+    vmess_json=$(cat <<EOF
+{"v":"2","ps":"${user}","add":"${domain}","port":"${port}","id":"${uuid}","aid":"0","scy":"auto","net":"ws","type":"","host":"","path":"${path}","tls":"","sni":"","alpn":"","fp":""}
+EOF
+)
+    vmess_b64="$(printf '%s' "$vmess_json" | base64 -w 0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
+    uri="vmess://${vmess_b64}"
+    elif [[ "$link_tls" == "tls" ]]; then
+    uri="vless://${uuid}@${domain}:${ext_port}?type=${network}&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}#${user}"
+    else
+    uri="vless://${uuid}@${domain}:${ext_port}?type=${network}&security=none&path=${enc_path}#${user}"
+    fi
+
+    clear
+    v2ray_title "PROTOCOLO CREADO"
+    printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "PROTOCOLO:" "$proto"
+    printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "NETWORK:" "$network"
+    printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "PUERTO:" "$port"
+    printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "PUERTO LINK:" "$ext_port"
+    printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "TLS LINK:" "$link_tls"
+    printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "HOST:" "$domain"
+    printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "PATH:" "$path"
+    printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "UUID:" "$uuid"
+    v2ray_line
+    echo -e "\033[1;33mLINK PARA IMPORTAR:\033[0m"
+    echo -e "\033[1;36m${uri}\033[0m"
+    v2ray_line
+    pausa_v2ray
+    fun_v2raymanager
+    }
+
     menu_xray_xhttp() {
     clear
     if ! xhttp_is_installed; then
@@ -1675,16 +1846,17 @@ EOF
             fi`;
             v2ray_line
             if [[ "$v2ray_running" = "1" ]]; then
-                v2ray_opt "1" "ADMINISTRAR USUARIOS V2RAY"
-                v2ray_opt "2" "CONFIGURACION DE V2RAY"
-                v2ray_opt "3" "GESTION XRAY XHTTP"
-                v2ray_opt "4" "REINICIAR SERVICIO V2RAY"
-                v2ray_opt "5" "REINSTALAR V2RAY" "$xv2ray"
-                v2ray_opt "6" "DESINSTALAR V2RAY"
+                v2ray_opt "1" "INSTALAR / REINSTALAR XRAY-CORE" "$xv2ray"
+                v2ray_opt "2" "CREAR PROTOCOLO"
+                v2ray_opt "3" "ADMINISTRAR USUARIOS"
+                v2ray_opt "4" "VER DATOS / LINKS"
+                v2ray_opt "5" "CONFIGURACION AVANZADA"
+                v2ray_opt "6" "REINICIAR SERVICIO XRAY"
+                v2ray_opt "7" "DESINSTALAR XRAY / V2RAY"
                 v2ray_opt "0" "VOLVER"
             else
-                v2ray_opt "1" "INSTALAR V2RAY" "$xv2ray"
-                v2ray_opt "2" "GESTION XRAY XHTTP"
+                v2ray_opt "1" "INSTALAR XRAY-CORE / MOTOR V2RAY" "$xv2ray"
+                v2ray_opt "2" "CREAR PROTOCOLO"
                 v2ray_opt "0" "VOLVER"
             fi
             v2ray_line
@@ -1699,7 +1871,7 @@ EOF
                     intallv2ray
                     ;;
                 2 | 02)
-                    menu_xray_xhttp
+                    crear_protocolo_v2ray
                     ;;
                 0 | 00)
                     break
@@ -1713,21 +1885,24 @@ EOF
             fi
             case $x in
             1 | 01)
-                menu_usuarios_v2ray
-                ;;
-            2 | 02)
-                ajustes_v2ray
-                ;;
-            3 | 03)
-                menu_xray_xhttp
-                ;;
-            4 | 04)
-                reiniciar_v2ray
-                ;;
-            5 | 05)
                 intallv2ray
                 ;;
+            2 | 02)
+                crear_protocolo_v2ray
+                ;;
+            3 | 03)
+                menu_usuarios_v2ray
+                ;;
+            4 | 04)
+                infocuenta
+                ;;
+            5 | 05)
+                ajustes_v2ray
+                ;;
             6 | 06)
+                reiniciar_v2ray
+                ;;
+            7 | 07)
                 unistallv2
                 ;;
             0 | 00)
