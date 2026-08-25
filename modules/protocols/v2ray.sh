@@ -98,6 +98,34 @@ v2ray_urlencode_path() {
     value="${value//'/'/%2F}"
     echo "$value"
 }
+v2ray_port_owner() {
+    local port="$1" owner=""
+    if command -v ss >/dev/null 2>&1; then
+    owner="$(ss -ltnup 2>/dev/null | awk -v p=":${port}" '$0 ~ p"[[:space:]]" {print; exit}')"
+    elif command -v netstat >/dev/null 2>&1; then
+    owner="$(netstat -ltnup 2>/dev/null | awk -v p=":${port}" '$0 ~ p"[[:space:]]" {print; exit}')"
+    elif command -v lsof >/dev/null 2>&1; then
+    owner="$(lsof -iTCP:"$port" -sTCP:LISTEN -P -n 2>/dev/null | awk 'NR==2 {print; exit}')"
+    fi
+    echo "$owner"
+}
+v2ray_port_in_use_by_other() {
+    local port="$1" owner cfg="$2"
+    owner="$(v2ray_port_owner "$port")"
+    [[ -z "$owner" ]] && return 1
+    echo "$owner" | grep -Eiq 'xray|v2ray' && return 1
+    if [[ -n "$cfg" && -f "$cfg" ]] && v2ray_require_jq; then
+    jq -e --argjson port "$port" '.inbounds[]? | select(.port == $port)' "$cfg" >/dev/null 2>&1 && return 1
+    fi
+    return 0
+}
+v2ray_warn_port_busy() {
+    local port="$1" owner
+    owner="$(v2ray_port_owner "$port")"
+    echo -e "\033[1;31mEl puerto $port ya esta siendo usado por otro servicio.\033[0m"
+    [[ -n "$owner" ]] && echo -e "\033[1;33mDetectado: \033[1;37m$owner\033[0m"
+    echo -e "\033[1;37mElija otro puerto o libere ese servicio antes de continuar.\033[0m"
+}
 tc_xray_status_mark() {
     if v2ray_service_running; then
     printf '\033[1;32mo\033[0m'
@@ -398,6 +426,10 @@ v2ray_ensure_legacy_config "$config_v2ray"
     [[ -z "$port" ]] && echo -e "$msg17" && continue
     if ! v2ray_valid_port "$port"; then
     echo -e "\033[1;31mPuerto no valido. Use 1-65535.\033[0m"
+    continue
+    fi
+    if v2ray_port_in_use_by_other "$port" "$cfg"; then
+    v2ray_warn_port_busy "$port"
     continue
     fi
     if jq -e --argjson port "$port" '.inbounds[]? | select(.port == $port)' "$cfg" >/dev/null; then
@@ -1231,6 +1263,12 @@ EOF
     menu_xray_xhttp
     return
     fi
+    if v2ray_port_in_use_by_other "$port" "/usr/local/etc/xray/config.json"; then
+    v2ray_warn_port_busy "$port"
+    pausa_v2ray
+    menu_xray_xhttp
+    return
+    fi
     echo -ne "${SSHPlus_DARK_GREEN}PATH XHTTP [Enter = /xhttp]:${SCOLOR} " && read path
     [[ -z "$path" ]] && path="/xhttp"
     path="$(printf '%s' "$path" | tr -d '"\\[:space:]')"
@@ -1399,6 +1437,12 @@ EOF
     [[ -z "$new_port" ]] && menu_xray_xhttp && return
     if ! v2ray_valid_port "$new_port"; then
     echo -e "\033[1;31mPuerto no valido.\033[0m"
+    pausa_v2ray
+    menu_xray_xhttp
+    return
+    fi
+    if v2ray_port_in_use_by_other "$new_port" "$cfg"; then
+    v2ray_warn_port_busy "$new_port"
     pausa_v2ray
     menu_xray_xhttp
     return
@@ -1786,6 +1830,12 @@ EOF
     [[ "$link_tls" == "none" ]] && ext_port="$port"
     if ! v2ray_valid_port "$port"; then
     echo -e "\033[1;31mPuerto no valido. Use 1-65535.\033[0m"
+    pausa_v2ray
+    fun_v2raymanager
+    return
+    fi
+    if v2ray_port_in_use_by_other "$port" "/usr/local/etc/xray/config.json"; then
+    v2ray_warn_port_busy "$port"
     pausa_v2ray
     fun_v2raymanager
     return
