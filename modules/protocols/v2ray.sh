@@ -1541,12 +1541,13 @@ EOF
     }
 
     v2ray_write_inbound_json() {
-    local proto="$1" network="$2" tls="$3" port="$4" path="$5" uuid="$6" tmp_json
+    local proto="$1" network="$2" tls="$3" port="$4" path="$5" uuid="$6" password="$7" method="$8" reality_dest="$9" reality_server="${10}" reality_private="${11}" reality_short="${12}" tmp_json
     tmp_json="$(mktemp)"
     if [[ "$proto" == "vmess" ]]; then
+    if [[ "$network" == "tcp" ]]; then
     cat > "$tmp_json" <<EOF
 {
-  "tag": "vmess-ws-${port}",
+  "tag": "vmess-tcp-${port}",
   "listen": "0.0.0.0",
   "port": ${port},
   "protocol": "vmess",
@@ -1556,9 +1557,147 @@ EOF
     ]
   },
   "streamSettings": {
-    "network": "ws",
+    "network": "tcp",
+    "security": "none"
+  }
+}
+EOF
+    else
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "vmess-${network}-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "vmess",
+  "settings": {
+    "clients": [
+      { "id": "${uuid}", "alterId": 0 }
+    ]
+  },
+  "streamSettings": {
+    "network": "${network}",
     "security": "none",
-    "wsSettings": { "path": "${path}" }
+    "${network}Settings": { "path": "${path}" }
+  }
+}
+EOF
+    fi
+    elif [[ "$proto" == "trojan" ]]; then
+    if [[ "$network" == "tcp" ]]; then
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "trojan-tcp-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "trojan",
+  "settings": {
+    "clients": [
+      { "password": "${password}" }
+    ]
+  },
+  "streamSettings": {
+    "network": "tcp",
+    "security": "none"
+  }
+}
+EOF
+    else
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "trojan-${network}-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "trojan",
+  "settings": {
+    "clients": [
+      { "password": "${password}" }
+    ]
+  },
+  "streamSettings": {
+    "network": "${network}",
+    "security": "${tls}",
+    "${network}Settings": { "path": "${path}" }
+  }
+}
+EOF
+    fi
+    elif [[ "$proto" == "shadowsocks" ]]; then
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "shadowsocks-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "shadowsocks",
+  "settings": {
+    "method": "${method}",
+    "password": "${password}",
+    "network": "tcp,udp"
+  }
+}
+EOF
+    elif [[ "$tls" == "reality" ]]; then
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "vless-reality-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "vless",
+  "settings": {
+    "clients": [
+      { "id": "${uuid}", "flow": "xtls-rprx-vision" }
+    ],
+    "decryption": "none"
+  },
+  "streamSettings": {
+    "network": "tcp",
+    "security": "reality",
+    "realitySettings": {
+      "show": false,
+      "dest": "${reality_dest}",
+      "serverNames": [ "${reality_server}" ],
+      "privateKey": "${reality_private}",
+      "shortIds": [ "${reality_short}" ]
+    }
+  }
+}
+EOF
+    else
+    if [[ "$network" == "tcp" ]]; then
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "vless-tcp-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "vless",
+  "settings": {
+    "clients": [
+      { "id": "${uuid}" }
+    ],
+    "decryption": "none"
+  },
+  "streamSettings": {
+    "network": "tcp",
+    "security": "${tls}"
+  }
+}
+EOF
+    elif [[ "$network" == "grpc" ]]; then
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "vless-grpc-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "vless",
+  "settings": {
+    "clients": [
+      { "id": "${uuid}" }
+    ],
+    "decryption": "none"
+  },
+  "streamSettings": {
+    "network": "grpc",
+    "security": "${tls}",
+    "grpcSettings": { "serviceName": "${path}" }
   }
 }
 EOF
@@ -1583,11 +1722,12 @@ EOF
 }
 EOF
     fi
+    fi
     echo "$tmp_json"
     }
 
     crear_protocolo_v2ray() {
-    local opt proto network tls link_tls port ext_port path domain host_header sni uuid user exp cfg uri enc_path vmess_json vmess_b64 vmess_tls tmp inbound_json
+    local opt proto network tls link_tls port ext_port path domain host_header sni uuid user exp cfg uri enc_path vmess_json vmess_b64 vmess_tls tmp inbound_json password method reality_dest reality_server reality_private reality_public reality_short
     clear
     v2ray_title "CREAR PROTOCOLO V2RAY / XRAY"
     if ! xhttp_is_installed; then
@@ -1600,26 +1740,42 @@ EOF
     v2ray_opt "1" "VMess + WebSocket"
     v2ray_opt "2" "VMess + WebSocket CDN TLS"
     v2ray_opt "3" "VMess + WebSocket alternativo"
+    v2ray_opt "4" "VMess + TCP"
     echo ""
     echo -e "\033[1;33mVLESS\033[0m"
-    v2ray_opt "4" "VLESS + WebSocket"
-    v2ray_opt "5" "VLESS + WebSocket CDN TLS"
-    v2ray_opt "6" "VLESS + WebSocket alternativo"
-    v2ray_opt "7" "VLESS + XHTTP"
+    v2ray_opt "5" "VLESS + WebSocket"
+    v2ray_opt "6" "VLESS + WebSocket CDN TLS"
+    v2ray_opt "7" "VLESS + WebSocket alternativo"
+    v2ray_opt "8" "VLESS + TCP"
+    v2ray_opt "9" "VLESS + XHTTP"
+    v2ray_opt "10" "VLESS + gRPC"
+    v2ray_opt "11" "VLESS + Reality"
+    echo ""
+    echo -e "\033[1;33mOTROS\033[0m"
+    v2ray_opt "12" "Trojan + WebSocket CDN TLS"
+    v2ray_opt "13" "Trojan + TCP"
+    v2ray_opt "14" "Shadowsocks"
     v2ray_line
     v2ray_opt "0" "VOLVER"
     v2ray_line
-    selection=$(selection_fun 7)
+    selection=$(selection_fun 14)
     [[ "$selection" = "0" ]] && fun_v2raymanager && return
 
     case "$selection" in
       1) proto="vmess"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
       2) proto="vmess"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/v2ray" ;;
       3) proto="vmess"; network="ws"; tls="none"; link_tls="none"; port="8080"; ext_port="8080"; path="/v2ray" ;;
-      4) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
-      5) proto="vless"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/v2ray" ;;
-      6) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="8080"; ext_port="8080"; path="/v2ray" ;;
-      7) proto="vless"; network="xhttp"; tls="none"; link_tls="none"; port="8443"; ext_port="8443"; path="/xhttp" ;;
+      4) proto="vmess"; network="tcp"; tls="none"; link_tls="none"; port="10086"; ext_port="10086"; path="" ;;
+      5) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
+      6) proto="vless"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/v2ray" ;;
+      7) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="8080"; ext_port="8080"; path="/v2ray" ;;
+      8) proto="vless"; network="tcp"; tls="none"; link_tls="none"; port="10085"; ext_port="10085"; path="" ;;
+      9) proto="vless"; network="xhttp"; tls="none"; link_tls="none"; port="8443"; ext_port="8443"; path="/xhttp" ;;
+      10) proto="vless"; network="grpc"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="grpc" ;;
+      11) proto="vless"; network="tcp"; tls="reality"; link_tls="reality"; port="443"; ext_port="443"; path="" ;;
+      12) proto="trojan"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/trojan" ;;
+      13) proto="trojan"; network="tcp"; tls="none"; link_tls="none"; port="443"; ext_port="443"; path="" ;;
+      14) proto="shadowsocks"; network="tcp"; tls="none"; link_tls="none"; port="8388"; ext_port="8388"; path="" ;;
     esac
 
     echo -ne "${SSHPlus_DARK_GREEN}USUARIO [Enter = user]:${SCOLOR} " && read user
@@ -1634,10 +1790,16 @@ EOF
     fun_v2raymanager
     return
     fi
+    if [[ "$network" == "ws" || "$network" == "xhttp" ]]; then
     echo -ne "${SSHPlus_DARK_GREEN}PATH [Enter = $path]:${SCOLOR} " && read custom_path
     [[ -n "$custom_path" ]] && path="$custom_path"
     path="$(printf '%s' "$path" | tr -d '"\\[:space:]')"
     [[ "$path" != /* ]] && path="/$path"
+    elif [[ "$network" == "grpc" ]]; then
+    echo -ne "${SSHPlus_DARK_GREEN}SERVICE NAME gRPC [Enter = $path]:${SCOLOR} " && read custom_path
+    [[ -n "$custom_path" ]] && path="$custom_path"
+    path="$(printf '%s' "$path" | tr -d '"\\[:space:]')"
+    fi
 
     domain="$(cat /etc/SSHPlus/v2ray/domain 2>/dev/null || cat /etc/SSHPlus/Dominio 2>/dev/null || echo "")"
     if [[ "$link_tls" == "tls" ]]; then
@@ -1661,6 +1823,34 @@ EOF
     fi
 
     uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+    password="$(tc_rand_string 16 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
+    method="aes-128-gcm"
+    if [[ "$proto" == "shadowsocks" ]]; then
+    echo -ne "${SSHPlus_DARK_GREEN}METODO [Enter = $method]:${SCOLOR} " && read input_method
+    [[ -n "$input_method" ]] && method="$input_method"
+    method="$(printf '%s' "$method" | tr -d '"\\[:space:]')"
+    fi
+    if [[ "$link_tls" == "reality" ]]; then
+    reality_server="www.cloudflare.com"
+    reality_dest="${reality_server}:443"
+    reality_short="$(openssl rand -hex 4 2>/dev/null || date +%s | sha256sum | cut -c1-8)"
+    echo -ne "${SSHPlus_DARK_GREEN}SNI REALITY [Enter = $reality_server]:${SCOLOR} " && read input_reality_server
+    [[ -n "$input_reality_server" ]] && reality_server="$input_reality_server"
+    reality_server="$(printf '%s' "$reality_server" | tr -d '"\\[:space:]')"
+    reality_dest="${reality_server}:443"
+    if /usr/local/bin/xray x25519 >/tmp/tc-xray-keys 2>/dev/null; then
+    reality_private="$(awk '/Private key:/ {print $3}' /tmp/tc-xray-keys)"
+    reality_public="$(awk '/Public key:/ {print $3}' /tmp/tc-xray-keys)"
+    rm -f /tmp/tc-xray-keys
+    fi
+    if [[ -z "$reality_private" || -z "$reality_public" ]]; then
+    echo -e "\033[1;31mNo se pudieron generar claves Reality con xray x25519.\033[0m"
+    pausa_v2ray
+    fun_v2raymanager
+    return
+    fi
+    domain="$reality_server"
+    fi
     exp="$(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || date '+%Y-%m-%d')"
     cfg="/usr/local/etc/xray/config.json"
     mkdir -p /usr/local/etc/xray /etc/SSHPlus/v2ray /etc/v2ray /etc/SSHPlus
@@ -1678,7 +1868,7 @@ EOF
 EOF
     fi
 
-    inbound_json="$(v2ray_write_inbound_json "$proto" "$network" "$tls" "$port" "$path" "$uuid")"
+    inbound_json="$(v2ray_write_inbound_json "$proto" "$network" "$tls" "$port" "$path" "$uuid" "$password" "$method" "$reality_dest" "$reality_server" "$reality_private" "$reality_short")"
     tmp="${cfg}.tmp"
     if ! v2ray_require_jq; then
     echo -e "\033[1;31mjq no esta instalado; no se puede modificar config.json.\033[0m"
@@ -1687,15 +1877,17 @@ EOF
     fun_v2raymanager
     return
     fi
-    jq --argjson port "$port" --arg proto "$proto" --arg network "$network" --arg path "$path" --arg uuid "$uuid" --slurpfile inbound "$inbound_json" '
+    jq --argjson port "$port" --arg proto "$proto" --arg network "$network" --arg tls "$tls" --arg path "$path" --arg uuid "$uuid" --slurpfile inbound "$inbound_json" '
       .log = (.log // { "loglevel": "warning" }) |
       .outbounds = ((.outbounds // []) | if length == 0 then [{ "protocol": "freedom", "tag": "direct" }] else . end) |
       .inbounds = (
         (.inbounds // []) as $inbounds |
-        if ($inbounds | any(.port == $port and .protocol == $proto and (.streamSettings.network // "tcp") == $network and ((.streamSettings.wsSettings.path // .streamSettings.xhttpSettings.path // "") == $path))) then
+        if ($proto == "shadowsocks" or $tls == "reality") then
+          ($inbounds | map(select(.port != $port)) + [$inbound[0]])
+        elif ($inbounds | any(.port == $port and .protocol == $proto and (.streamSettings.network // "tcp") == $network and ((.streamSettings.wsSettings.path // .streamSettings.xhttpSettings.path // .streamSettings.grpcSettings.serviceName // "") == $path))) then
           $inbounds | map(
-            if (.port == $port and .protocol == $proto and (.streamSettings.network // "tcp") == $network and ((.streamSettings.wsSettings.path // .streamSettings.xhttpSettings.path // "") == $path)) then
-              if (.settings.clients | any(.id == $uuid)) then
+            if (.port == $port and .protocol == $proto and (.streamSettings.network // "tcp") == $network and ((.streamSettings.wsSettings.path // .streamSettings.xhttpSettings.path // .streamSettings.grpcSettings.serviceName // "") == $path)) then
+              if ((.settings.clients // []) | any(.id == $uuid or .password == $inbound[0].settings.clients[0].password)) then
                 .
               else
                 .settings.clients += [($inbound[0].settings.clients[0])]
@@ -1733,15 +1925,39 @@ EOF
     vmess_tls=""
     [[ "$link_tls" == "tls" ]] && vmess_tls="tls"
     vmess_json=$(cat <<EOF
-{"v":"2","ps":"${user}","add":"${domain}","port":"${ext_port}","id":"${uuid}","aid":"0","scy":"auto","net":"ws","type":"","host":"${host_header}","path":"${path}","tls":"${vmess_tls}","sni":"${sni}","alpn":"","fp":""}
+{"v":"2","ps":"${user}","add":"${domain}","port":"${ext_port}","id":"${uuid}","aid":"0","scy":"auto","net":"${network}","type":"","host":"${host_header}","path":"${path}","tls":"${vmess_tls}","sni":"${sni}","alpn":"","fp":""}
 EOF
 )
     vmess_b64="$(printf '%s' "$vmess_json" | base64 -w 0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
     uri="vmess://${vmess_b64}"
+    elif [[ "$proto" == "trojan" ]]; then
+    if [[ "$link_tls" == "tls" ]]; then
+    uri="trojan://${password}@${domain}:${ext_port}?type=${network}&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}#${user}"
+    elif [[ "$network" == "ws" ]]; then
+    uri="trojan://${password}@${domain}:${ext_port}?type=ws&security=none&path=${enc_path}#${user}"
+    else
+    uri="trojan://${password}@${domain}:${ext_port}?security=none#${user}"
+    fi
+    elif [[ "$proto" == "shadowsocks" ]]; then
+    local ss_userinfo
+    ss_userinfo="$(printf '%s' "${method}:${password}" | base64 -w 0 2>/dev/null || printf '%s' "${method}:${password}" | base64 | tr -d '\n')"
+    uri="ss://${ss_userinfo}@${domain}:${ext_port}#${user}"
+    elif [[ "$link_tls" == "reality" ]]; then
+    uri="vless://${uuid}@${domain}:${ext_port}?type=tcp&security=reality&sni=${reality_server}&pbk=${reality_public}&sid=${reality_short}&fp=chrome&flow=xtls-rprx-vision#${user}"
     elif [[ "$link_tls" == "tls" ]]; then
+    if [[ "$network" == "grpc" ]]; then
+    uri="vless://${uuid}@${domain}:${ext_port}?type=grpc&security=tls&sni=${sni}&serviceName=${path}#${user}"
+    else
     uri="vless://${uuid}@${domain}:${ext_port}?type=${network}&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}#${user}"
+    fi
+    else
+    if [[ "$network" == "tcp" ]]; then
+    uri="vless://${uuid}@${domain}:${ext_port}?type=tcp&security=none#${user}"
+    elif [[ "$network" == "grpc" ]]; then
+    uri="vless://${uuid}@${domain}:${ext_port}?type=grpc&security=none&serviceName=${path}#${user}"
     else
     uri="vless://${uuid}@${domain}:${ext_port}?type=${network}&security=none&path=${enc_path}#${user}"
+    fi
     fi
 
     clear
@@ -1754,6 +1970,9 @@ EOF
     printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "HOST:" "$domain"
     printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "PATH:" "$path"
     printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "UUID:" "$uuid"
+    [[ "$proto" == "trojan" || "$proto" == "shadowsocks" ]] && printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "PASSWORD:" "$password"
+    [[ "$proto" == "shadowsocks" ]] && printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "METODO:" "$method"
+    [[ "$link_tls" == "reality" ]] && printf "\033[1;32m%-18s\033[0m \033[1;37m%s\033[0m\n" "PUBLIC KEY:" "$reality_public"
     v2ray_line
     echo -e "\033[1;33mLINK PARA IMPORTAR:\033[0m"
     echo -e "\033[1;36m${uri}\033[0m"
