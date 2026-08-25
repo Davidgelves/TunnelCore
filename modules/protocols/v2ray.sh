@@ -41,7 +41,7 @@ linea_v2ray() {
 
 v2ray_config_file() {
     local cfg
-    for cfg in /etc/tunnelcore/v2ray/config.json /etc/v2ray/config.json /usr/local/etc/v2ray/config.json /usr/local/etc/xray/config.json /etc/xray/config.json; do
+    for cfg in /usr/local/etc/xray/config.json /etc/v2ray/config.json /etc/tunnelcore/v2ray/config.json /usr/local/etc/v2ray/config.json /etc/xray/config.json; do
         [[ -f "$cfg" ]] && echo "$cfg" && return 0
     done
     return 1
@@ -105,7 +105,6 @@ v2ray_show_info() {
     fi
     cfg="$(v2ray_config_file)"
     [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontró config.json de V2Ray/Xray.\033[0m" && return 1
-    echo -e "\033[1;33mComando v2ray no disponible; mostrando puertos desde config.json.\033[0m"
     if v2ray_require_jq; then
         jq -r '.inbounds[]? | "PUERTO: \(.port) | PROTOCOLO: \(.protocol // "desconocido") | RED: \(.streamSettings.network // "tcp")"' "$cfg"
     else
@@ -122,7 +121,162 @@ msg15='\033[1;37m\033[1;33m(Solo números) GB = Min: 1gb Max: 1000gb\033[1;31m'
 msg16='\033[1;37m\033[1;33m(Solo números)\033[1;31m'
 msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[1;31m'
 
-# ── Instalador V2Ray Oficial ──────────────────────────────────
+# ── Instalador Directo de Respaldo de Núcleo ──────────────────
+instalar_nucleo_directo() {
+    local arch asset xray_url
+    arch="$(uname -m)"
+    case "$arch" in
+        x86_64|amd64) asset="Xray-linux-64.zip" ;;
+        aarch64|arm64) asset="Xray-linux-arm64-v8a.zip" ;;
+        arm*) asset="Xray-linux-arm32-v7a.zip" ;;
+        *) asset="Xray-linux-64.zip" ;;
+    esac
+
+    xray_url="https://github.com/XTLS/Xray-core/releases/latest/download/${asset}"
+    local tmp_dir="/tmp/xray-core-inst-$$"
+    mkdir -p "$tmp_dir" /usr/local/etc/xray /etc/v2ray /etc/SSHPlus/v2ray /etc/SSHPlus
+
+    if ! curl -fsSL --connect-timeout 5 -o "${tmp_dir}/xray.zip" "$xray_url"; then
+        wget -q --timeout=30 -O "${tmp_dir}/xray.zip" "$xray_url" || true
+    fi
+
+    if [[ -f "${tmp_dir}/xray.zip" ]]; then
+        unzip -q -o "${tmp_dir}/xray.zip" -d "$tmp_dir" >/dev/null 2>&1 || true
+        if [[ -f "${tmp_dir}/xray" ]]; then
+            install -m 755 "${tmp_dir}/xray" /usr/local/bin/xray
+        fi
+    fi
+    rm -rf "$tmp_dir"
+
+    local init_uuid="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || tc_gen_uuid)"
+    local init_user="admin"
+    local init_exp="$(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || echo '2030-01-01')"
+
+    # Certificados SSL para TLS 443
+    mkdir -p /etc/tunnelcore/v2ray
+    if [[ ! -f /etc/tunnelcore/v2ray/server.crt || ! -f /etc/tunnelcore/v2ray/server.key ]]; then
+        openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
+            -keyout /etc/tunnelcore/v2ray/server.key -out /etc/tunnelcore/v2ray/server.crt -subj "/CN=tunnelcore-v2ray" >/dev/null 2>&1 || true
+        chmod 600 /etc/tunnelcore/v2ray/server.key /etc/tunnelcore/v2ray/server.crt 2>/dev/null || true
+    fi
+
+    cat > /usr/local/etc/xray/config.json <<EOF
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "tag": "vmess-ws-http",
+      "port": 80,
+      "listen": "0.0.0.0",
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          {
+            "id": "${init_uuid}",
+            "alterId": 0
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/tunnelcore"
+        }
+      }
+    },
+    {
+      "tag": "vless-ws-http",
+      "port": 8080,
+      "listen": "0.0.0.0",
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "${init_uuid}",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/tunnelcore"
+        }
+      }
+    },
+    {
+      "tag": "vmess-ws-tls",
+      "port": 443,
+      "listen": "0.0.0.0",
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          {
+            "id": "${init_uuid}",
+            "alterId": 0
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "/etc/tunnelcore/v2ray/server.crt",
+              "keyFile": "/etc/tunnelcore/v2ray/server.key"
+            }
+          ]
+        },
+        "wsSettings": {
+          "path": "/tunnelcore"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    }
+  ]
+}
+EOF
+
+    ln -sf /usr/local/etc/xray/config.json /etc/v2ray/config.json 2>/dev/null || cp -f /usr/local/etc/xray/config.json /etc/v2ray/config.json 2>/dev/null || true
+
+    cat > /etc/systemd/system/xray.service <<EOF
+[Unit]
+Description=TunnelCore V2Ray/Xray Service
+After=network.target nss-lookup.target
+
+[Service]
+User=root
+ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload >/dev/null 2>&1
+    systemctl enable xray >/dev/null 2>&1
+    systemctl restart xray >/dev/null 2>&1
+
+    [[ -f /etc/SSHPlus/RegV2ray ]] || touch /etc/SSHPlus/RegV2ray
+    if ! grep -q "$init_uuid" /etc/SSHPlus/RegV2ray 2>/dev/null; then
+        echo "  $init_uuid | $init_user | $init_exp " >> /etc/SSHPlus/RegV2ray
+    fi
+}
+
+# ── Instalador V2Ray ──────────────────────────────────────────
 intallv2ray() {
     tc_clear
     v2ray_title "INSTALADOR V2RAY"
@@ -139,22 +293,17 @@ intallv2ray() {
     fi
 
     echo -e "\033[1;32m[✓] Descargando e iniciando instalador Multi-V2Ray...\033[0m"
-    if ! bash <(curl -sL https://multi.netlify.app/v2ray.sh) -k 2>/dev/null; then
-        bash <(curl -sL https://raw.githubusercontent.com/Jrohy/multi-v2ray/master/v2ray.sh) 2>/dev/null || true
+    local installed=0
+    if bash <(curl -sL https://multi.netlify.app/v2ray.sh) -k 2>/dev/null; then
+        installed=1
+    elif bash <(curl -sL https://raw.githubusercontent.com/Jrohy/multi-v2ray/master/v2ray.sh) 2>/dev/null; then
+        installed=1
     fi
 
-    mkdir -p /etc/SSHPlus /etc/tunnelcore/v2ray
-    local USRdatabase="/etc/SSHPlus/RegV2ray"
-    [[ ! -e ${USRdatabase} ]] && touch ${USRdatabase}
-    sort ${USRdatabase} | uniq > "${USRdatabase}tmp"
-    mv -f "${USRdatabase}tmp" "${USRdatabase}"
-
-    tc_clear
-    if ! command -v v2ray >/dev/null 2>&1; then
-        echo -e "\033[1;31mEl instalador original no dejó disponible el comando v2ray.\033[0m"
-        echo -e "\033[1;37mSe abrirá el instalador Xray XHTTP local para crear una configuración funcional.\033[0m"
-        pausa_v2ray
-        instalar_xray_xhttp
+    # Si no dejó comando v2ray o falló config.json, configurar núcleo directamente
+    if ! command -v v2ray >/dev/null 2>&1 || [[ -z "$(v2ray_config_file)" ]]; then
+        echo -e "\033[1;33mConfigurando núcleo V2Ray oficial de alta velocidad...\033[0m"
+        instalar_nucleo_directo
     else
         v2ray_title "ELIJA EL PROTOCOLO V2RAY"
         v2ray stream
@@ -165,18 +314,18 @@ intallv2ray() {
         tc_clear
     fi
 
+    mkdir -p /etc/SSHPlus /etc/tunnelcore/v2ray
+    local USRdatabase="/etc/SSHPlus/RegV2ray"
+    [[ ! -e ${USRdatabase} ]] && touch ${USRdatabase}
+    sort ${USRdatabase} | uniq > "${USRdatabase}tmp"
+    mv -f "${USRdatabase}tmp" "${USRdatabase}"
+
     local config_v2ray="$(v2ray_config_file)"
-    if [[ -z "$config_v2ray" ]]; then
-        linea_v2ray
-        echo -e "\033[1;31mNo se encontró config.json de V2Ray/Xray.\033[0m"
-        echo -e "\033[1;37mLa instalación base no generó el archivo de configuración.\033[0m"
-        echo -e "\033[1;37mUse REINSTALAR V2RAY o GESTIÓN XRAY XHTTP > INSTALAR XRAY XHTTP.\033[0m"
-        linea_v2ray
-        pausa_v2ray
-        return
+    if [[ -n "$config_v2ray" ]]; then
+        v2ray_ensure_legacy_config "$config_v2ray"
+        v2ray_restart_service
     fi
 
-    v2ray_ensure_legacy_config "$config_v2ray"
     linea_v2ray
     v2ray_title "INFORMACIÓN DE CUENTA"
     v2ray_show_info
