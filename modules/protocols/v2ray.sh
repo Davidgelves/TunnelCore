@@ -362,8 +362,8 @@ unistallv2() {
     pkill -9 -x v2ray >/dev/null 2>&1 || true
     pkill -9 -x xray >/dev/null 2>&1 || true
     rm -f /etc/systemd/system/xray.service /etc/systemd/system/v2ray.service /lib/systemd/system/v2ray.service /lib/systemd/system/xray.service
-    rm -f /usr/local/bin/xray /usr/local/bin/v2ray /usr/bin/v2ray /usr/bin/xray /bin/v2ray /bin/xray
-    rm -rf /usr/local/etc/xray /etc/xray /var/log/xray /etc/v2ray /usr/local/etc/v2ray /var/log/v2ray /etc/SSHPlus/RegV2ray /etc/tunnelcore/v2ray
+    rm -rf /usr/local/bin/xray /usr/local/bin/v2ray /usr/bin/v2ray /usr/bin/xray /bin/v2ray /bin/xray
+    rm -rf /usr/local/etc/xray /etc/xray /var/log/xray /etc/v2ray /usr/local/etc/v2ray /var/log/v2ray /etc/SSHPlus/RegV2ray /etc/tunnelcore/v2ray /etc/SSHPlus/v2ray
     systemctl daemon-reload >/dev/null 2>&1
     echo -e "\n\033[1;32mV2RAY ELIMINADO CORRECTAMENTE.\033[0m"
     linea_v2ray
