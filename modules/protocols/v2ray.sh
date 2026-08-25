@@ -311,6 +311,7 @@ tc_xray_install() {
     printf '%bDominio o Subdominio [Enter = %s]:%b ' "$TC_DARK_GREEN" "$def_ip" "$TC_NC"
     read -r dom
     [[ -z "$dom" ]] && dom="$def_ip"
+    mkdir -p "$TC_XRAY_DIR"
     echo "$dom" > "$TC_XRAY_DOMAIN_FILE"
 
     tc_xray_install_binary || {
