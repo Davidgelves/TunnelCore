@@ -11,14 +11,14 @@ TC_V2_DOMAIN_FILE="/etc/tunnelcore/v2ray_domain"
 
 tc_v2_config_file() {
     local cfg
-    for cfg in /etc/v2ray/config.json /usr/local/etc/v2ray/config.json /usr/local/etc/xray/config.json /etc/xray/config.json; do
+    for cfg in /etc/v2ray/config.json /usr/local/etc/v2ray/config.json /etc/tunnelcore/v2ray/config.json /usr/local/etc/xray/config.json /etc/xray/config.json; do
         [[ -f "$cfg" ]] && echo "$cfg" && return 0
     done
     return 1
 }
 
 tc_v2_is_installed() {
-    command -v v2ray >/dev/null 2>&1 || [[ -n "$(tc_v2_config_file)" ]]
+    command -v v2ray >/dev/null 2>&1 || [[ -n "$(tc_v2_config_file)" ]] || command -v xray >/dev/null 2>&1
 }
 
 tc_v2_is_running() {
@@ -75,6 +75,38 @@ tc_v2_install_official() {
     fi
 
     tc_msg_ok "¡Instalación de V2Ray completada!"
+    tc_pause
+}
+
+# ── Desinstalación Profunda Total de V2Ray / Xray ─────────────
+tc_v2_uninstall_all() {
+    tc_clear
+    tc_title "DESINSTALAR V2RAY / XRAY"
+
+    if ! tc_confirm "¿Está seguro de desinstalar y limpiar por completo V2Ray y Xray?"; then
+        return
+    fi
+
+    tc_msg_ok "Deteniendo y eliminando servicios..."
+    systemctl stop v2ray >/dev/null 2>&1 || true
+    systemctl stop xray >/dev/null 2>&1 || true
+    systemctl disable v2ray >/dev/null 2>&1 || true
+    systemctl disable xray >/dev/null 2>&1 || true
+
+    if command -v v2ray >/dev/null 2>&1; then
+        v2ray uninstall >/dev/null 2>&1 || true
+    fi
+
+    pkill -9 -x v2ray >/dev/null 2>&1 || true
+    pkill -9 -x xray >/dev/null 2>&1 || true
+
+    rm -f /etc/systemd/system/xray.service /etc/systemd/system/v2ray.service /lib/systemd/system/v2ray.service /lib/systemd/system/xray.service /etc/systemd/system/multi-v2ray.service
+    systemctl daemon-reload >/dev/null 2>&1 || true
+
+    rm -f /usr/local/bin/xray /usr/local/bin/v2ray /usr/bin/v2ray /usr/bin/xray /bin/v2ray /bin/xray
+    rm -rf /etc/v2ray /usr/local/etc/v2ray /etc/xray /usr/local/etc/xray /etc/tunnelcore/v2ray /etc/tunnelcore/v2ray_users.db /etc/tunnelcore/v2ray_domain /etc/tunnelcore/v2ray.env /var/log/v2ray /var/log/xray /root/.v2ray /root/.xray
+
+    tc_msg_ok "¡V2Ray / Xray ha sido desinstalado por completo!"
     tc_pause
 }
 
@@ -557,18 +589,7 @@ tc_xray_menu() {
                     journalctl -u v2ray -f --no-pager 2>/dev/null || journalctl -u xray -f --no-pager 2>/dev/null
                     ;;
                 10) tc_v2_install_official ;;
-                11)
-                    if tc_confirm "¿Está seguro de desinstalar V2Ray por completo?"; then
-                        if command -v v2ray >/dev/null 2>&1; then
-                            v2ray uninstall 2>/dev/null || true
-                        fi
-                        systemctl stop v2ray >/dev/null 2>&1 || true
-                        systemctl disable v2ray >/dev/null 2>&1 || true
-                        rm -rf /etc/v2ray /usr/local/etc/v2ray "$TC_V2_REG" "$TC_V2_DOMAIN_FILE"
-                        tc_msg_ok "V2Ray desinstalado."
-                        tc_pause
-                    fi
-                    ;;
+                11) tc_v2_uninstall_all ;;
                 0|00) break ;;
                 *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
             esac
