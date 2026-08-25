@@ -179,6 +179,7 @@ clear
     echo -e "\033[1;37mSe abrira el instalador Xray XHTTP local para crear una configuracion funcional.\033[0m"
     pausa_v2ray
     instalar_xray_xhttp
+    return
     fi
     v2ray_title "ELIJA EL PROTOCOLO V2RAY"
     v2ray stream
@@ -527,6 +528,20 @@ v2ray_ensure_legacy_config "$config_v2ray"
         done
     fi
 
+    local inbound_proto inbound_network
+    inbound_proto="$(jq -r --argjson p "${selected_port:-0}" '.inbounds[]? | select(.port == $p) | .protocol // ""' "$cfg" 2>/dev/null | head -1)"
+    inbound_network="$(jq -r --argjson p "${selected_port:-0}" '.inbounds[]? | select(.port == $p) | .streamSettings.network // "tcp"' "$cfg" 2>/dev/null | head -1)"
+    [[ -z "$inbound_network" || "$inbound_network" == "null" ]] && inbound_network="tcp"
+    if [[ "$inbound_proto" == "vless" && "$proto_tag" != "vless" ]]; then
+        proto_name="VLESS"
+        proto_tag="vless"
+        echo -e "\033[1;33mEl puerto seleccionado es VLESS; se ajusto el protocolo automaticamente.\033[0m"
+    elif [[ "$inbound_proto" == "vmess" && "$proto_tag" != "vmess" ]]; then
+        proto_name="VMess"
+        proto_tag="vmess"
+        echo -e "\033[1;33mEl puerto seleccionado es VMess; se ajusto el protocolo automaticamente.\033[0m"
+    fi
+
     # 4. Configurar UUID (Aleatorio o Manual)
     while true; do
         echo ""
@@ -724,10 +739,12 @@ EOF
         uri="vmess://${vmess_b64}"
     else
         local enc_path="$(v2ray_urlencode_path "$path_ws")"
+        local link_network="$inbound_network"
+        [[ -z "$link_network" || "$link_network" == "null" || "$link_network" == "tcp" ]] && link_network="ws"
         if [[ "$tls_mode" == "tls" ]]; then
-            uri="vless://${UUID}@${add_host}:${ext_port}?type=ws&security=tls&sni=${sni_host}&host=${host_header}&path=${enc_path}#${nick}"
+            uri="vless://${UUID}@${add_host}:${ext_port}?type=${link_network}&security=tls&sni=${sni_host}&host=${host_header}&path=${enc_path}#${nick}"
         else
-            uri="vless://${UUID}@${add_host}:${ext_port}?type=ws&security=none&path=${enc_path}#${nick}"
+            uri="vless://${UUID}@${add_host}:${ext_port}?type=${link_network}&security=none&path=${enc_path}#${nick}"
         fi
     fi
 
@@ -1206,10 +1223,13 @@ EOF
     fi
     echo -ne "${SSHPlus_DARK_GREEN}PATH XHTTP [Enter = /xhttp]:${SCOLOR} " && read path
     [[ -z "$path" ]] && path="/xhttp"
+    path="$(printf '%s' "$path" | tr -d '"\\[:space:]')"
     [[ "$path" != /* ]] && path="/$path"
     echo -ne "${SSHPlus_DARK_GREEN}DOMINIO/SNI [opcional]:${SCOLOR} " && read domain
+    domain="$(printf '%s' "$domain" | tr -d '"\\[:space:]')"
     [[ -n "$domain" ]] && mkdir -p /etc/SSHPlus/v2ray && echo "$domain" > /etc/SSHPlus/v2ray/domain
     echo -ne "${SSHPlus_DARK_GREEN}USUARIO [Enter = xhttp]:${SCOLOR} " && read user
+    user="$(printf '%s' "$user" | sed -e 's/[^a-zA-Z0-9_. -]//g')"
     [[ -z "$user" ]] && user="xhttp"
     uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
     exp="$(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || date '+%Y-%m-%d')"
@@ -1225,6 +1245,20 @@ EOF
     if command -v apt-get >/dev/null 2>&1; then
     apt-get update -y >/dev/null 2>&1 || true
     apt-get install -y unzip curl wget ca-certificates jq uuid-runtime >/dev/null 2>&1 || true
+    fi
+    for dep in unzip jq; do
+    if ! command -v "$dep" >/dev/null 2>&1; then
+    echo -e "\033[1;31mDependencia faltante: $dep\033[0m"
+    pausa_v2ray
+    menu_xray_xhttp
+    return
+    fi
+    done
+    if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    echo -e "\033[1;31mNecesita curl o wget para descargar Xray.\033[0m"
+    pausa_v2ray
+    menu_xray_xhttp
+    return
     fi
     cd /tmp || { echo -e "\033[1;31mNo se pudo acceder a /tmp\033[0m"; pausa_v2ray; menu_xray_xhttp; return; }
     rm -rf xray-install xray.zip
