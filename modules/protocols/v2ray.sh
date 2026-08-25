@@ -74,29 +74,58 @@ tc_xray_install_binary() {
             ;;
     esac
 
-    local xray_url="https://github.com/XTLS/Xray-core/releases/latest/download/${asset}"
     local tmp_dir="/tmp/xray-install-$$"
     mkdir -p "$tmp_dir"
 
     tc_msg_ok "Descargando Xray-core oficial para $arch..."
-    if ! curl -fsSL --connect-timeout 8 --max-time 90 -o "${tmp_dir}/xray.zip" "$xray_url"; then
-        wget -q --timeout=30 -O "${tmp_dir}/xray.zip" "$xray_url" || {
-            tc_msg_err "Error descargando Xray desde GitHub Releases."
-            rm -rf "$tmp_dir"
-            return 1
-        }
+    local downloaded=false
+    local urls=(
+        "https://github.com/XTLS/Xray-core/releases/latest/download/${asset}"
+        "https://ghproxy.net/https://github.com/XTLS/Xray-core/releases/latest/download/${asset}"
+        "https://mirror.ghproxy.com/https://github.com/XTLS/Xray-core/releases/latest/download/${asset}"
+    )
+
+    for url in "${urls[@]}"; do
+        if curl -fsSL --connect-timeout 6 --max-time 35 -o "${tmp_dir}/xray.zip" "$url" 2>/dev/null; then
+            if unzip -q -t "${tmp_dir}/xray.zip" >/dev/null 2>&1; then
+                downloaded=true
+                break
+            fi
+        fi
+    done
+
+    if [[ "$downloaded" != "true" ]]; then
+        # Intento con wget como fallback
+        for url in "${urls[@]}"; do
+            if wget -q --timeout=20 -O "${tmp_dir}/xray.zip" "$url" 2>/dev/null; then
+                if unzip -q -t "${tmp_dir}/xray.zip" >/dev/null 2>&1; then
+                    downloaded=true
+                    break
+                fi
+            fi
+        done
     fi
 
-    unzip -q -o "${tmp_dir}/xray.zip" -d "$tmp_dir" >/dev/null 2>&1 || {
-        tc_msg_err "Error al descomprimir el archivo de Xray."
-        rm -rf "$tmp_dir"
-        return 1
-    }
+    if [[ "$downloaded" == "true" ]]; then
+        unzip -q -o "${tmp_dir}/xray.zip" -d "$tmp_dir" >/dev/null 2>&1
+        if [[ -f "${tmp_dir}/xray" ]]; then
+            install -m 755 "${tmp_dir}/xray" "$TC_XRAY_BIN"
+        fi
+    else
+        # Fallback a script oficial de instalación directa
+        tc_msg_warn "Usando instalador oficial de Xray como alternativa..."
+        bash -c "$(curl -fsSL --connect-timeout 8 https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh)" @ install >/dev/null 2>&1 || true
+    fi
 
-    install -m 755 "${tmp_dir}/xray" "$TC_XRAY_BIN"
     rm -rf "$tmp_dir"
 
+    if ! [[ -x "$TC_XRAY_BIN" ]]; then
+        tc_msg_err "No se pudo obtener el binario de Xray. Verifique la conexión a internet de la VPS."
+        return 1
+    fi
+
     mkdir -p /usr/local/share/xray /var/log/xray
+    chmod 755 /var/log/xray 2>/dev/null || true
 
     # Crear servicio systemd
     cat > "$TC_XRAY_SERVICE" <<EOF
