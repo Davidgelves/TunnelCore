@@ -4,7 +4,6 @@
 #  Gestión Avanzada de V2Ray / Xray (1:1 con Rufus / NoxuraSSH)
 #  Autor: J DAVID AG
 # ─────────────────────────────────────────────────────────────────
-set -uo pipefail
 
 cor1='\033[41;1;37m'
 cor2='\033[44;1;37m'
@@ -171,7 +170,7 @@ msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[1;31m'
     [[ ! -e ${USRdatabase} ]] && touch ${USRdatabase}
     sort ${USRdatabase} | uniq > ${USRdatabase}tmp
     mv -f ${USRdatabase}tmp ${USRdatabase}
-clear
+    tc_clear
     if ! command -v v2ray >/dev/null 2>&1; then
     echo -e "\033[1;31mEl instalador original no dejo disponible el comando v2ray.\033[0m"
     echo -e "\033[1;37mSe abrira el instalador Xray XHTTP local para crear una configuracion funcional.\033[0m"
@@ -180,11 +179,11 @@ clear
     fi
     v2ray_title "ELIJA EL PROTOCOLO V2RAY"
     v2ray stream
-clear
+    tc_clear
     linea_v2ray
     v2ray_title "INDIQUE EL PUERTO V2RAY [8443] o [443]"
     v2ray port 
-clear
+    tc_clear
 config_v2ray="$(v2ray_config_file)"
 if [[ -z "$config_v2ray" ]]; then
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
@@ -193,7 +192,7 @@ if [[ -z "$config_v2ray" ]]; then
     echo -e "\033[1;37mUse REINSTALAR V2RAY o CONFIGURACION DE V2RAY > INSTALAR XRAY XHTTP.\033[0m"
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
 fi
 v2ray_ensure_legacy_config "$config_v2ray"
     linea_v2ray
@@ -201,7 +200,7 @@ v2ray_ensure_legacy_config "$config_v2ray"
     v2ray_show_info
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
 
     v2ray_restart_service() {
@@ -252,7 +251,7 @@ v2ray_ensure_legacy_config "$config_v2ray"
 
     v2ray_set_websocket() {
     local cfg path host tmp
-    clear
+    tc_clear
     v2ray_title "ACTIVAR WEBSOCKET V2RAY"
     cfg="$(v2ray_config_file)"
     [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontro config.json de V2Ray/Xray.\033[0m" && pausa_v2ray && ajustes_v2ray
@@ -310,7 +309,7 @@ v2ray_ensure_legacy_config "$config_v2ray"
 
     protocolv2ray () {
     local opt
-    clear
+    tc_clear
     v2ray_title "CAMBIAR PROTOCOLO V2RAY"
     v2ray_opt "1" "Abrir selector original"
     v2ray_opt "3" "WebSocket"
@@ -330,14 +329,14 @@ v2ray_ensure_legacy_config "$config_v2ray"
     v2ray stream
     v2ray_line
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     ;;
     0 | 00) ajustes_v2ray ;;
     *) echo -e "\033[1;31mOpcion no valida!\033[0m"; sleep 2; protocolv2ray ;;
     esac
     }
     tls () {
-    clear
+    tc_clear
     v2ray_title "Activar o desactivar TLS"
     if ! command -v v2ray >/dev/null 2>&1; then
     echo -e "\033[1;31mLa opcion TLS original requiere el comando v2ray.\033[0m"
@@ -348,7 +347,7 @@ v2ray_ensure_legacy_config "$config_v2ray"
     v2ray tls
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
     portv () {
     v2ray_title "CAMBIAR PUERTO V2RAY"
@@ -361,12 +360,12 @@ v2ray_ensure_legacy_config "$config_v2ray"
     v2ray port
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
 
     agregar_puerto_v2ray() {
     local cfg tmp port base_port
-    clear
+    tc_clear
     v2ray_title "AGREGAR PUERTO V2RAY"
     cfg="$(v2ray_config_file)"
     [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontro config.json de V2Ray/Xray.\033[0m" && pausa_v2ray && ajustes_v2ray
@@ -421,7 +420,7 @@ v2ray_ensure_legacy_config "$config_v2ray"
     v2ray stats
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
     unistallv2 () {
     source <(curl -sL https://multi.netlify.app/v2ray.sh) --remove > /dev/null 2>&1
@@ -434,28 +433,28 @@ v2ray_ensure_legacy_config "$config_v2ray"
     echo -e "\n\033[1;32mV2RAY ELIMINADO CORRECTAMENTE.\033[0m"
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
     infocuenta () {
     v2ray_title "INFORMACION DE CUENTA"
     v2ray_show_info
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
     addusr () {
-    clear
+    tc_clear
     v2ray_title "ANADIR USUARIO | UUID V2RAY"
     local cfg tmp
     cfg="$(v2ray_config_file)"
-    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontro config.json de V2Ray/Xray.\033[0m" && pausa_v2ray && fun_v2raymanager
+    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontro config.json de V2Ray/Xray.\033[0m" && pausa_v2ray && tc_xray_menu
     v2ray_ensure_legacy_config "$cfg"
     cfg="/etc/v2ray/config.json"
     if ! v2ray_require_jq; then
         echo -e "\033[1;31mjq no esta instalado; no se puede modificar el JSON de forma segura.\033[0m"
         echo -e "\033[1;37mInstale jq y vuelva a intentar crear el usuario V2Ray.\033[0m"
         pausa_v2ray
-        fun_v2raymanager
+
     fi
 
     # 1. Nombre de usuario
@@ -729,7 +728,7 @@ EOF
     fi
 
     # 10. Mostrar Ficha y URI
-    clear
+    tc_clear
     v2ray_title "USUARIO V2RAY CREADO CON EXITO"
     v2ray_line
     printf "\033[1;32m%-22s\033[0m \033[1;37m%s\033[0m\n" "USUARIO:" "$nick"
@@ -747,16 +746,16 @@ EOF
     echo -e "\033[1;36m${uri}\033[0m\n"
     v2ray_line
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
 
     delusr () {
-    clear
+    tc_clear
     v2ray_title "ELIMINAR USUARIO V2RAY"
     local cfg tmp
     cfg="$(v2ray_config_file)"
     [[ -n "$cfg" ]] && v2ray_ensure_legacy_config "$cfg" && cfg="/etc/v2ray/config.json"
-    [[ ! -s /etc/SSHPlus/RegV2ray ]] && echo -e "\033[1;31mNo hay usuarios V2RAY registrados.\033[0m" && pausa_v2ray && fun_v2raymanager
+    [[ ! -s /etc/SSHPlus/RegV2ray ]] && echo -e "\033[1;31mNo hay usuarios V2RAY registrados.\033[0m" && pausa_v2ray && tc_xray_menu
     echo -e "\033[1;37m        USUARIOS REGISTRADOS A ELIMINAR\033[0m"
     v2ray_line
     printf "\033[1;37m%-20s %s\033[0m\n" "NOMBRE" "UUID"
@@ -771,7 +770,7 @@ EOF
     while true; do
     echo -ne "${SSHPLUS_CYAN}Opcion:${SCOLOR} "
     read uuid_sel
-    [[ "$uuid_sel" = "0" ]] && fun_v2raymanager
+    [[ "$uuid_sel" = "0" ]] && tc_xray_menu
     [[ "$uuid_sel" =~ ^[0-9]+$ ]] && [[ "$uuid_sel" -ge 1 ]] && [[ "$uuid_sel" -le "${#uuid_list[@]}" ]] && break
     echo -e "\033[1;31mOpcion no valida!\033[0m"
     sleep 1
@@ -796,7 +795,7 @@ EOF
       rm -f "$tmp"
       echo -e "\033[1;31mNo se pudo eliminar el UUID del config.json.\033[0m"
       pausa_v2ray
-      fun_v2raymanager
+
     }
     v2ray_restart_service
     else
@@ -808,11 +807,11 @@ EOF
     echo -e "\e[92m     USUARIO ${nick_del} ELIMINADO DE TODOS LOS PUERTOS "
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
 
     mosusr_kk() {
-    clear
+    tc_clear
     v2ray_title "USUARIOS V2RAY REGISTRADOS"
     VPSsec=$(date +%s)
     if [[ ! -s /etc/SSHPlus/RegV2ray ]]; then
@@ -821,7 +820,7 @@ EOF
     v2ray_opt "0" "VOLVER"
     v2ray_line
     echo -ne "${SSHPLUS_CYAN}Opcion:${SCOLOR} " && read enter
-    fun_v2raymanager
+
     fi
     printf "\033[1;37m%-36s %-14s %s\033[0m\n" "UUID" "USUARIO" "EXPIRA"
     printf "\033[1;37m------------------------------------------------------------\033[0m\n"
@@ -846,11 +845,11 @@ EOF
     v2ray_opt "0" "VOLVER"
     v2ray_line
     echo -ne "${SSHPLUS_CYAN}Opcion:${SCOLOR} " && read enter
-    fun_v2raymanager
+
     }
     lim_port () {
-    clear 
-    clear
+    tc_clear
+    tc_clear
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     v2ray_title "LIMITAR MB x PUERTO | UUID V2RAY"
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
@@ -864,7 +863,7 @@ EOF
     if [[ -z $RETURN ]]; then
     echo -e "----- NINGUN PUERTO REGISTRADO -----"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     else
     i=1
     while read hostreturn ; do
@@ -886,7 +885,7 @@ EOF
     fi
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager 
+
     }
     ###LIM
     liport () {
@@ -924,7 +923,7 @@ EOF
     echo " $portbg | $gbuser | $multiplicacion " >> /etc/SSHPlus/v2ray/lisportt.log 
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
     ###RES
     resdata () {
@@ -975,7 +974,7 @@ EOF
     echo -e "\e[91m                PUERTO NO VALIDO \n"
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
     [[ $(sed -n '/'${portbg}'/=' /etc/SSHPlus/v2ray/lisportt.log|head -1) ]] || invaliduuid
     gblim=$(cat /etc/SSHPlus/v2ray/lisportt.log|grep -w "$portbg"|cut -d'|' -f3)
@@ -986,7 +985,7 @@ EOF
     sed -i "${linePre}d" /etc/SSHPlus/v2ray/lisportt.log
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
     ## MENU
     v2ray_opt "1" "LIMITAR DATOS x PUERTO"
@@ -1001,7 +1000,7 @@ EOF
     2)resdata;;
     3)estarts;;
     0)
-    fun_v2raymanager
+
     ;;
     esac
     }
@@ -1020,8 +1019,8 @@ EOF
     PID_GEN=$(ps x|grep -v grep|grep "limv2ray")
     [[ ! $PID_GEN ]] && PID_GEN="\e[91m [ DESACTIVADO ] " || PID_GEN="\e[92m [ ACTIVADO ] "
     statgen="$(echo $PID_GEN)"
-    clear 
-    clear
+    tc_clear
+    tc_clear
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     v2ray_title "ELIMINAR EXPIRADOS | UUID V2RAY"
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
@@ -1030,7 +1029,6 @@ EOF
     echo "" 						
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
 
     }
 
@@ -1062,7 +1060,7 @@ EOF
     }
 
     editar_json_v2ray() {
-    clear
+    tc_clear
     linea_v2ray
     v2ray_title "MODIFICAR JSON V2RAY"
     linea_v2ray
@@ -1084,7 +1082,7 @@ EOF
     }
 
     modificar_uuid_v2ray() {
-    clear
+    tc_clear
     v2ray_title "MODIFICAR UUID V2RAY"
     local cfg tmp
     cfg="$(v2ray_config_file)"
@@ -1157,7 +1155,7 @@ EOF
     }
 
     modificar_path_v2ray() {
-    clear
+    tc_clear
     linea_v2ray
     v2ray_title "MODIFICAR PATH V2RAY"
     linea_v2ray
@@ -1192,7 +1190,7 @@ EOF
 
     instalar_xray_xhttp() {
     local port path domain uuid user exp xray_url arch asset
-    clear
+    tc_clear
     v2ray_title "INSTALAR XRAY XHTTP"
     echo -ne "${SSHPLUS_DARK_GREEN}PUERTO XRAY XHTTP [Enter = 8443]:${SCOLOR} " && read port
     [[ -z "$port" ]] && port="8443"
@@ -1309,7 +1307,7 @@ EOF
     }
 
     info_xray_xhttp() {
-    clear
+    tc_clear
     v2ray_title "INFORMACION XRAY XHTTP"
     local cfg="/usr/local/etc/xray/config.json"
     if [[ ! -f "$cfg" ]]; then
@@ -1342,7 +1340,7 @@ EOF
     }
 
     cambiar_puerto_xhttp() {
-    clear
+    tc_clear
     v2ray_title "CAMBIAR PUERTO XRAY XHTTP"
     local cfg="/usr/local/etc/xray/config.json"
     local cur_port="$(jq -r '.inbounds[0].port // "8443"' "$cfg" 2>/dev/null)"
@@ -1371,7 +1369,7 @@ EOF
     }
 
     cambiar_path_xhttp() {
-    clear
+    tc_clear
     v2ray_title "CAMBIAR PATH XRAY XHTTP"
     local cfg="/usr/local/etc/xray/config.json"
     local cur_path="$(jq -r '.inbounds[0].streamSettings.xhttpSettings.path // "/xhttp"' "$cfg" 2>/dev/null)"
@@ -1395,7 +1393,7 @@ EOF
     }
 
     cambiar_uuid_xhttp() {
-    clear
+    tc_clear
     v2ray_title "CAMBIAR UUID XRAY XHTTP"
     local cfg="/usr/local/etc/xray/config.json"
     local cur_uuid="$(jq -r '.inbounds[0].settings.clients[0].id // ""' "$cfg" 2>/dev/null)"
@@ -1419,7 +1417,7 @@ EOF
     }
 
     reiniciar_xray_xhttp() {
-    clear
+    tc_clear
     v2ray_title "REINICIAR XRAY XHTTP"
     systemctl restart xray >/dev/null 2>&1
     if systemctl is-active xray >/dev/null 2>&1; then
@@ -1432,7 +1430,7 @@ EOF
     }
 
     desinstalar_xray_xhttp() {
-    clear
+    tc_clear
     v2ray_title "DESINSTALAR XRAY XHTTP"
     if ! xhttp_is_installed; then
     echo -e "\033[1;31mXray XHTTP no esta instalado.\033[0m"
@@ -1453,11 +1451,11 @@ EOF
     echo -e "\e[92m       XRAY XHTTP DESINSTALADO CORRECTAMENTE "
     echo -e "${SSHPLUS_CYAN}============================================================${SCOLOR}"
     pausa_v2ray
-    fun_v2raymanager
+
     }
 
     editar_json_xhttp() {
-    clear
+    tc_clear
     v2ray_title "MODIFICAR JSON XRAY XHTTP"
     local cfg="/usr/local/etc/xray/config.json"
     if [[ ! -f "$cfg" ]]; then
@@ -1487,7 +1485,7 @@ EOF
     }
 
     menu_xray_xhttp() {
-    clear
+    tc_clear
     if ! xhttp_is_installed; then
     v2ray_title "GESTION XRAY XHTTP [NO INSTALADO]"
     v2ray_opt "1" "INSTALAR XRAY XHTTP"
@@ -1497,7 +1495,7 @@ EOF
     selection=$(selection_fun 1)
     case ${selection} in
       1)instalar_xray_xhttp ;;
-      0)fun_v2raymanager ;;
+      0)tc_xray_menu ;;
     esac
     else
     local xport="$(jq -r '.inbounds[0].port // "8443"' /usr/local/etc/xray/config.json 2>/dev/null)"
@@ -1523,13 +1521,13 @@ EOF
       5)reiniciar_xray_xhttp ;;
       6)editar_json_xhttp ;;
       7)desinstalar_xray_xhttp ;;
-      0)fun_v2raymanager ;;
+      0)tc_xray_menu ;;
     esac
     fi
     }
     menu_usuarios_v2ray() {
         while true; do
-            clear
+    tc_clear
             v2ray_title "ADMINISTRAR USUARIOS V2RAY"
             v2ray_opt "1" "ANADIR USUARIO | UUID"
             v2ray_opt "2" "ELIMINAR USUARIO V2RAY"
@@ -1560,7 +1558,7 @@ EOF
     }
 
     ajustes_v2ray() {
-    clear
+    tc_clear
     v2ray_title "CONFIGURACION DE V2RAY"
     v2ray_opt "1" "CAMBIAR PROTOCOLO"
     v2ray_opt "2" "ACTIVAR TLS"
@@ -1581,12 +1579,12 @@ EOF
     5)modificar_uuid_v2ray ;;
     6)modificar_path_v2ray ;;
     7)agregar_puerto_v2ray ;;
-    0)fun_v2raymanager ;;
+    0)tc_xray_menu ;;
     esac
     }
 
     reiniciar_v2ray() {
-    clear
+    tc_clear
     v2ray_title "REINICIAR SERVICIO V2RAY"
     if systemctl is-active xray >/dev/null 2>&1; then
     systemctl restart xray >/dev/null 2>&1
@@ -1596,12 +1594,12 @@ EOF
     echo -e "\033[1;32mServicio V2RAY reiniciado correctamente.\033[0m"
     v2ray_line
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[1;31m" && read enter
-    fun_v2raymanager
+
     }
 
-    fun_v2raymanager() {
+    tc_xray_menu() {
         while true; do
-            clear
+    tc_clear
             v2ray_title "V2RAY"
             if v2ray_service_running; then
                 v2ray_running=1
@@ -1638,7 +1636,7 @@ EOF
             echo -ne "${SSHPLUS_CYAN}Opcion:${SCOLOR} "
             read x
             tput cnorm
-            clear
+    tc_clear
             if [[ "$v2ray_running" != "1" ]]; then
                 case $x in
                 1 | 01)
@@ -1648,8 +1646,7 @@ EOF
                     menu_xray_xhttp
                     ;;
                 0 | 00)
-                    connection
-                    exit
+                    break
                     ;;
                 *)
                     echo -e "\033[1;31mOpcion no valida!\033[0m"
@@ -1678,8 +1675,7 @@ EOF
                 unistallv2
                 ;;
             0 | 00)
-                connection
-                exit
+                    break
                 ;;
             *)
                 echo -e "\033[1;31mOpcion no valida!\033[0m"
@@ -1688,6 +1684,3 @@ EOF
             esac
         done
     }
-    fun_v2raymanager
-
-
