@@ -1,7 +1,7 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 #  TunnelCore — modules/protocols/slowdns.sh
-#  Gestión de SlowDNS (DNSTT Server)
+#  Gestión de SlowDNS (DNSTT Server) basada en NoxuraSSH
 #  Autor: J DAVID AG
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
@@ -35,9 +35,9 @@ tc_slow_status_mark() {
 
 tc_slow_load_conf() {
     SLOW_PORT="5300"
-    SLOW_TARGET="22"
+    SLOW_TRAFFIC="22"
     SLOW_DOMAIN=""
-    SLOW_REDIR="53"
+    SLOW_REDIRECT="53"
     if [[ -f "$TC_SLOW_CONF" ]]; then
         # shellcheck disable=SC1090
         . "$TC_SLOW_CONF"
@@ -48,58 +48,62 @@ tc_slow_save_conf() {
     mkdir -p "$TC_SLOW_DIR"
     cat > "$TC_SLOW_CONF" <<EOF
 SLOW_PORT="${SLOW_PORT:-5300}"
-SLOW_TARGET="${SLOW_TARGET:-22}"
+SLOW_TRAFFIC="${SLOW_TRAFFIC:-22}"
 SLOW_DOMAIN="${SLOW_DOMAIN:-}"
-SLOW_REDIR="${SLOW_REDIR:-53}"
+SLOW_REDIRECT="${SLOW_REDIRECT:-53}"
 EOF
     chmod 600 "$TC_SLOW_CONF"
 }
 
-# ── Descargar / Compilar dnstt-server ─────────────────────────
+# ── Descargar dnstt-server con múltiples mirrors ───────────────
 tc_slow_download_bin() {
-    tc_require_cmd "curl" "curl"
-    tc_require_cmd "iptables" "iptables"
-
     local arch
     arch="$(tc_detect_arch)"
-    local url=""
-
-    case "$arch" in
-        amd64) url="https://github.com/Davidgelves/NoxuraSSH/raw/main/Modulos/dnstt-server-amd64" ;;
-        arm64) url="https://github.com/Davidgelves/NoxuraSSH/raw/main/Modulos/dnstt-server-arm64" ;;
-        *)
-            # Fallback o compilar si Go está disponible
-            url="https://dnstt.network/dnstt-server-linux-${arch}"
-            ;;
-    esac
-
     local tmp="/tmp/dnstt-server.$$"
-    tc_msg_ok "Descargando dnstt-server para arquitectura $arch..."
+    rm -f "$tmp"
 
-    if ! tc_download "$url" "$tmp" 3; then
-        # Si la descarga directa falla, intentamos compilar con Go si existe
-        if command -v go >/dev/null 2>&1; then
-            tc_msg_warn "Intentando compilar dnstt-server con Go..."
-            git clone --depth=1 https://www.bamsoftware.com/git/dnstt.git /tmp/dnstt-build-$$ >/dev/null 2>&1 || true
-            if [[ -d "/tmp/dnstt-build-$$/dnstt-server" ]]; then
-                (cd "/tmp/dnstt-build-$$/dnstt-server" && go build -o "$TC_SLOW_BIN") >/dev/null 2>&1 || true
-                rm -rf "/tmp/dnstt-build-$$"
-            fi
-        fi
+    local mirrors=()
+    if [[ "$arch" == "amd64" ]]; then
+        mirrors=(
+            "https://dnstt.network/dnstt-server-linux-amd64"
+            "https://github.com/alexandre01-dev/dnstt/releases/download/v1.0/dnstt-server-linux-amd64"
+            "https://github.com/darxssh/SlowDNS/raw/main/dnstt-server"
+        )
+    elif [[ "$arch" == "arm64" ]]; then
+        mirrors=(
+            "https://dnstt.network/dnstt-server-linux-arm64"
+            "https://github.com/alexandre01-dev/dnstt/releases/download/v1.0/dnstt-server-linux-arm64"
+        )
     else
-        install -m 755 "$tmp" "$TC_SLOW_BIN"
-        rm -f "$tmp"
+        mirrors=(
+            "https://dnstt.network/dnstt-server-linux-arm"
+        )
     fi
 
-    if [[ ! -x "$TC_SLOW_BIN" ]]; then
-        tc_msg_err "No se pudo obtener el binario dnstt-server."
+    tc_msg_ok "Descargando binario dnstt-server ($arch)..."
+    local downloaded=0
+    for u in "${mirrors[@]}"; do
+        if curl -fsSL --connect-timeout 5 --max-time 20 -o "$tmp" "$u" 2>/dev/null && [[ -s "$tmp" ]]; then
+            downloaded=1
+            break
+        elif wget -q --timeout=10 -O "$tmp" "$u" 2>/dev/null && [[ -s "$tmp" ]]; then
+            downloaded=1
+            break
+        fi
+    done
+
+    if [[ "$downloaded" -eq 1 && -s "$tmp" ]]; then
+        chmod +x "$tmp"
+        mv -f "$tmp" "$TC_SLOW_BIN"
+        chmod +x "$TC_SLOW_BIN"
+        return 0
+    else
+        tc_msg_err "No se pudo descargar el binario dnstt-server desde los servidores espejo."
         return 1
     fi
-    return 0
 }
 
-# ── Generar claves criptográficas ─────────────────────────────
-tc_slow_gen_keys() {
+tc_slow_generate_keys() {
     mkdir -p "$TC_SLOW_DIR"
     [[ -x "$TC_SLOW_BIN" ]] || tc_slow_download_bin || return 1
     "$TC_SLOW_BIN" -gen-key -privkey-file "$TC_SLOW_KEY" -pubkey-file "$TC_SLOW_PUB" >/dev/null 2>&1
@@ -107,45 +111,72 @@ tc_slow_gen_keys() {
     chmod 644 "$TC_SLOW_PUB"
 }
 
-# ── Helper iptables ───────────────────────────────────────────
+tc_slow_tune_system() {
+    if [[ -f /etc/ssh/sshd_config ]]; then
+        sed -i '/^#\?MaxStartups/d' /etc/ssh/sshd_config
+        sed -i '/^#\?MaxSessions/d' /etc/ssh/sshd_config
+        sed -i '/^#\?ClientAliveInterval/d' /etc/ssh/sshd_config
+        sed -i '/^#\?ClientAliveCountMax/d' /etc/ssh/sshd_config
+        sed -i '/^#\?TCPKeepAlive/d' /etc/ssh/sshd_config
+        echo "MaxStartups 100:30:500" >> /etc/ssh/sshd_config
+        echo "MaxSessions 100" >> /etc/ssh/sshd_config
+        echo "ClientAliveInterval 10" >> /etc/ssh/sshd_config
+        echo "ClientAliveCountMax 6" >> /etc/ssh/sshd_config
+        echo "TCPKeepAlive yes" >> /etc/ssh/sshd_config
+        systemctl restart ssh >/dev/null 2>&1 || systemctl restart sshd >/dev/null 2>&1 || true
+    fi
+
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+    sysctl -w net.core.rmem_max=26214400 >/dev/null 2>&1 || true
+    sysctl -w net.core.rmem_default=26214400 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_max=26214400 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_default=26214400 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_rmem_min=16384 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_wmem_min=16384 >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_udp_timeout=120 >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_udp_timeout_stream=300 >/dev/null 2>&1 || true
+    sysctl -p >/dev/null 2>&1 || true
+
+    iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || \
+        iptables -t mangle -I FORWARD 1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || true
+    iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || \
+        iptables -t mangle -I OUTPUT 1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || true
+}
+
 tc_slow_write_iptables_helper() {
     mkdir -p "$TC_SLOW_DIR"
-    cat > "$TC_SLOW_IPTABLES" <<'EOF'
+    cat > "$TC_SLOW_IPTABLES" <<EOF
 #!/bin/bash
-ACTION="${1:-apply}"
-CONF="/etc/tunnelcore/slowdns/slowdns.conf"
-[[ -f "$CONF" ]] && . "$CONF"
-
+ACTION="\$1"
 PORT="${SLOW_PORT:-5300}"
-REDIR="${SLOW_REDIR:-53}"
+REDIR="${SLOW_REDIRECT:-53}"
 
 clear_rules() {
-    iptables -D INPUT -p udp --dport "$REDIR" -j ACCEPT >/dev/null 2>&1 || true
-    iptables -D INPUT -p udp --dport "$PORT" -j ACCEPT >/dev/null 2>&1 || true
-    while iptables -t nat -C PREROUTING -p udp -m udp --dport "$REDIR" -j REDIRECT --to-ports "$PORT" >/dev/null 2>&1; do
-        iptables -t nat -D PREROUTING -p udp -m udp --dport "$REDIR" -j REDIRECT --to-ports "$PORT" >/dev/null 2>&1 || break
+    iptables -D INPUT -p udp --dport "\$REDIR" -j ACCEPT >/dev/null 2>&1 || true
+    iptables -D INPUT -p udp --dport "\$PORT" -j ACCEPT >/dev/null 2>&1 || true
+    while iptables -t nat -C PREROUTING -p udp -m udp --dport "\$REDIR" -j REDIRECT --to-ports "\$PORT" >/dev/null 2>&1; do
+        iptables -t nat -D PREROUTING -p udp -m udp --dport "\$REDIR" -j REDIRECT --to-ports "\$PORT" >/dev/null 2>&1 || break
     done
-    while iptables -t nat -C PREROUTING -p udp --dport "$REDIR" -j REDIRECT --to-ports "$PORT" >/dev/null 2>&1; do
-        iptables -t nat -D PREROUTING -p udp --dport "$REDIR" -j REDIRECT --to-ports "$PORT" >/dev/null 2>&1 || break
+    while iptables -t nat -C PREROUTING -p udp --dport "\$REDIR" -j REDIRECT --to-ports "\$PORT" >/dev/null 2>&1; do
+        iptables -t nat -D PREROUTING -p udp --dport "\$REDIR" -j REDIRECT --to-ports "\$PORT" >/dev/null 2>&1 || break
     done
 }
 
 apply_rules() {
     clear_rules
-    iptables -I INPUT 1 -p udp --dport "$REDIR" -j ACCEPT >/dev/null 2>&1 || true
-    iptables -I INPUT 1 -p udp --dport "$PORT" -j ACCEPT >/dev/null 2>&1 || true
-    iptables -t nat -I PREROUTING 1 -p udp -m udp --dport "$REDIR" -j REDIRECT --to-ports "$PORT" >/dev/null 2>&1 || true
+    iptables -I INPUT 1 -p udp --dport "\$REDIR" -j ACCEPT >/dev/null 2>&1 || true
+    iptables -I INPUT 1 -p udp --dport "\$PORT" -j ACCEPT >/dev/null 2>&1 || true
+    iptables -t nat -I PREROUTING 1 -p udp -m udp --dport "\$REDIR" -j REDIRECT --to-ports "\$PORT" >/dev/null 2>&1 || true
 }
 
-case "$ACTION" in
+case "\$ACTION" in
     apply) apply_rules ;;
     clear) clear_rules ;;
 esac
 EOF
-    chmod +x "$TC_SLOW_IPTABLES"
+    chmod +x "$TC_SLOW_IPTABLES" 2>/dev/null || true
 }
 
-# ── Escribir servicio systemd ──────────────────────────────────
 tc_slow_write_service() {
     tc_slow_write_iptables_helper
     cat > "$TC_SLOW_SERVICE" <<EOF
@@ -157,144 +188,217 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=${TC_SLOW_IPTABLES} apply
-ExecStart=${TC_SLOW_BIN} -udp :${SLOW_PORT} -privkey-file ${TC_SLOW_KEY} ${SLOW_DOMAIN} 127.0.0.1:${SLOW_TARGET}
+ExecStart=${TC_SLOW_BIN} -udp :${SLOW_PORT} -privkey-file ${TC_SLOW_KEY} ${SLOW_DOMAIN} 127.0.0.1:${SLOW_TRAFFIC}
 ExecStopPost=${TC_SLOW_IPTABLES} clear
 Restart=always
 RestartSec=3
-LimitNOFILE=65535
+LimitNOFILE=infinity
 StandardOutput=append:${TC_SLOW_LOG}
 StandardError=append:${TC_SLOW_LOG}
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    systemctl daemon-reload >/dev/null 2>&1
-    systemctl enable slowdns >/dev/null 2>&1
+    systemctl daemon-reload >/dev/null 2>&1 || true
 }
 
-# ── Configurar / Instalar ─────────────────────────────────────
+tc_slow_restart() {
+    tc_slow_load_conf
+    tc_slow_tune_system
+    tc_slow_write_service
+    [[ -x "$TC_SLOW_IPTABLES" ]] && "$TC_SLOW_IPTABLES" apply
+    systemctl enable slowdns >/dev/null 2>&1 || true
+    systemctl restart slowdns >/dev/null 2>&1 || true
+}
+
+# ── Selector dinámico de tráfico idéntico a NoxuraSSH ───────────
+tc_slow_pick_traffic() {
+    local dropbear_p="90"
+    if [[ -f /etc/default/dropbear ]]; then
+        dropbear_p="$(grep -oE '^DROPBEAR_PORT=[0-9]+' /etc/default/dropbear 2>/dev/null | cut -d'=' -f2 || echo "90")"
+    fi
+
+    while true; do
+        tc_clear
+        tc_title "CONFIGURAR SLOWDNS (REDIRECCION)"
+        printf '%bPUERTO SLOWDNS (escucha):%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${SLOW_PORT:-5300}" "$TC_NC"
+        tc_line
+        printf '%b       ¿A QUÉ PUERTO REDIRIGIR EL TRÁFICO?%b\n' "$TC_YELLOW" "$TC_NC"
+        tc_line
+        printf '%b[1]%b %b> OPENSSH ............................%b %b22%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$TC_NC"
+        printf '%b[2]%b %b> DROPBEAR ...........................%b %b%s%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$dropbear_p" "$TC_NC"
+        printf '%b[3]%b %b> INGRESAR PUERTO MANUALMENTE%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC"
+        tc_line
+        tc_opt "0" "$(_t 'cancel')"
+        tc_line
+
+        tc_prompt
+        read -r opt
+
+        case "$opt" in
+            1) SLOW_TRAFFIC="22"; return 0 ;;
+            2) SLOW_TRAFFIC="$dropbear_p"; return 0 ;;
+            3)
+                printf '%bIngrese puerto destino local [1-65535]:%b ' "$TC_DARK_GREEN" "$TC_NC"
+                read -r manual_p
+                if tc_valid_port "$manual_p"; then
+                    SLOW_TRAFFIC="$manual_p"
+                    return 0
+                else
+                    tc_msg_err "Puerto no válido."
+                    sleep 1
+                fi
+                ;;
+            0) return 1 ;;
+            *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
+        esac
+    done
+}
+
 tc_slow_configure() {
     tc_clear
-    tc_title "CONFIGURAR SLOWDNS (DNSTT)"
-
+    tc_title "CONFIGURAR SLOWDNS"
     tc_slow_load_conf
 
-    local domain port target
-    printf '%bDominio NS (ej: ns.midominio.com):%b ' "$TC_DARK_GREEN" "$TC_NC"
-    read -r domain
-    [[ -n "$domain" ]] && SLOW_DOMAIN="$domain"
+    printf '%bPUERTO SLOWDNS [Enter = 5300]:%b ' "$TC_DARK_GREEN" "$TC_NC"
+    read -r new_port
+    [[ -n "$new_port" ]] && SLOW_PORT="$new_port"
 
-    if [[ -z "$SLOW_DOMAIN" ]]; then
-        tc_msg_err "Debe ingresar un subdominio NS válido apuntando a la IP de esta VPS."
+    printf '%bDOMINIO NS (ej: ns.midominio.com):%b ' "$TC_DARK_GREEN" "$TC_NC"
+    read -r new_domain
+    [[ -n "$new_domain" ]] && SLOW_DOMAIN="$new_domain"
+
+    if [[ -z "$SLOW_DOMAIN" || "$SLOW_DOMAIN" = "ns.example.com" ]]; then
+        tc_msg_err "Debe ingresar un dominio NS real apuntando a la IP de esta VPS."
         tc_pause
         return
     fi
 
-    printf '%bPuerto de escucha UDP [Enter = 5300]:%b ' "$TC_DARK_GREEN" "$TC_NC"
-    read -r port
-    [[ -n "$port" ]] && SLOW_PORT="$port"
+    if ! tc_slow_pick_traffic; then
+        return
+    fi
 
-    printf '%bPuerto destino local (SSH=22, Dropbear=110/443) [Enter = 22]:%b ' "$TC_DARK_GREEN" "$TC_NC"
-    read -r target
-    [[ -n "$target" ]] && SLOW_TARGET="$target"
-
+    SLOW_REDIRECT="53"
     tc_slow_download_bin || { tc_pause; return; }
-    [[ -f "$TC_SLOW_KEY" && -f "$TC_SLOW_PUB" ]] || tc_slow_gen_keys || { tc_pause; return; }
+    [[ -f "$TC_SLOW_KEY" && -f "$TC_SLOW_PUB" ]] || tc_slow_generate_keys || { tc_pause; return; }
 
     tc_slow_save_conf
-    tc_slow_write_service
-
-    systemctl restart slowdns >/dev/null 2>&1
+    tc_slow_restart
 
     if tc_slow_is_running; then
-        tc_msg_ok "SlowDNS configurado y en ejecución."
-        printf '\n%bClave Pública (para cliente):%b %b%s%b\n' \
-            "$TC_YELLOW" "$TC_NC" "$TC_GREEN" "$(cat "$TC_SLOW_PUB" 2>/dev/null)" "$TC_NC"
+        tc_msg_ok "SLOWDNS configurado y activo correctamente."
     else
-        tc_msg_err "SlowDNS se configuró pero no inició. Revise 'journalctl -u slowdns -n 20'."
+        tc_msg_warn "SLOWDNS configurado pero el servicio aún no responde."
     fi
     tc_pause
 }
 
-# ── Mostrar claves ────────────────────────────────────────────
 tc_slow_show_keys() {
     tc_clear
-    tc_title "CLAVES CRIPTOGRÁFICAS SLOWDNS"
+    tc_title "CLAVES SLOWDNS"
     if [[ -f "$TC_SLOW_PUB" ]]; then
-        printf '%bCLAVE PÚBLICA (Cliente):%b\n%b%s%b\n\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$(cat "$TC_SLOW_PUB")" "$TC_NC"
+        printf '%bCLAVE PUBLICA:%b %b%s%b\n\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$(cat "$TC_SLOW_PUB")" "$TC_NC"
     else
-        tc_msg_warn "No se encontró clave pública."
+        printf '%bNo existe clave pública.%b\n' "$TC_RED" "$TC_NC"
     fi
+
     if [[ -f "$TC_SLOW_KEY" ]]; then
-        printf '%bCLAVE PRIVADA (Servidor):%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$TC_SLOW_KEY" "$TC_NC"
+        printf '%bCLAVE PRIVADA (Archivo):%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$TC_SLOW_KEY" "$TC_NC"
     fi
     tc_line
     tc_pause
 }
 
-# ── Desinstalar ───────────────────────────────────────────────
-tc_slow_uninstall() {
+tc_slow_custom_keys() {
     tc_clear
-    tc_title "DESINSTALAR SLOWDNS"
+    tc_title "PAR DE CLAVES PERSONALIZADAS"
+    mkdir -p "$TC_SLOW_DIR"
 
-    if tc_confirm "¿Está seguro de desinstalar SlowDNS?"; then
-        systemctl stop slowdns >/dev/null 2>&1 || true
-        systemctl disable slowdns >/dev/null 2>&1 || true
-        [[ -x "$TC_SLOW_IPTABLES" ]] && "$TC_SLOW_IPTABLES" clear
-        rm -f "$TC_SLOW_SERVICE" "$TC_SLOW_BIN" "$TC_SLOW_LOG"
-        rm -rf "$TC_SLOW_DIR"
-        systemctl daemon-reload >/dev/null 2>&1
-        tc_msg_ok "SlowDNS desinstalado por completo."
+    printf '%bCLAVE PRIVADA:%b ' "$TC_DARK_GREEN" "$TC_NC"
+    read -r priv
+    printf '%bCLAVE PUBLICA:%b ' "$TC_DARK_GREEN" "$TC_NC"
+    read -r pub
+
+    if [[ -z "$priv" || -z "$pub" ]]; then
+        tc_msg_err "Datos incompletos."
+        tc_pause
+        return
     fi
+
+    echo "$priv" > "$TC_SLOW_KEY"
+    echo "$pub" > "$TC_SLOW_PUB"
+    chmod 600 "$TC_SLOW_KEY"
+    chmod 644 "$TC_SLOW_PUB"
+    tc_msg_ok "Claves guardadas."
+    tc_slow_restart
     tc_pause
 }
 
-# ── Menú SlowDNS ──────────────────────────────────────────────
+tc_slow_stop() {
+    systemctl stop slowdns >/dev/null 2>&1 || true
+    systemctl disable slowdns >/dev/null 2>&1 || true
+    [[ -x "$TC_SLOW_IPTABLES" ]] && "$TC_SLOW_IPTABLES" clear >/dev/null 2>&1 || true
+    tc_msg_ok "SlowDNS detenido."
+    tc_pause
+}
+
 tc_slow_menu() {
     while true; do
         tc_clear
         tc_slow_load_conf
-        tc_title "GESTIÓN SLOWDNS $(tc_slow_status_mark)"
+        tc_title "SLOWDNS (DNSTT) $(tc_slow_status_mark)"
 
-        if ! tc_slow_is_installed; then
-            tc_opt "1" "INSTALAR Y CONFIGURAR SLOWDNS"
+        if ! tc_slow_is_running; then
+            tc_opt "1" "CONFIGURAR / INICIAR SLOWDNS"
+            tc_opt "2" "INGRESAR CLAVES PERSONALIZADAS"
+            tc_opt "3" "VER CLAVES SLOWDNS"
             tc_line
-            tc_opt "0" "VOLVER"
+            tc_opt "0" "$(_t 'back')"
             tc_line
             tc_prompt
             read -r opt
             case "$opt" in
                 1|01) tc_slow_configure ;;
+                2|02) tc_slow_custom_keys ;;
+                3|03) tc_slow_show_keys ;;
                 0|00) break ;;
-                *) tc_msg_err "Opción no válida."; sleep 1 ;;
+                *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
             esac
         else
-            printf '%bDOMINIO NS:%b %b%s%b  %bDESTINO:%b %b127.0.0.1:%s%b\n' \
-                "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${SLOW_DOMAIN:-N/A}" "$TC_NC" \
-                "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${SLOW_TARGET:-22}" "$TC_NC"
+            printf '%bDOMINIO NS:%b %b%s%b  %bPUERTO UDP:%b %b%s%b  %bDESTINO:%b %b%s%b\n' \
+                "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${SLOW_DOMAIN:-No configurado}" "$TC_NC" \
+                "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${SLOW_PORT:-5300}" "$TC_NC" \
+                "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${SLOW_TRAFFIC:-22}" "$TC_NC"
             tc_line
-            tc_opt "1" "RECONFIGURAR SLOWDNS"
-            tc_opt "2" "VER CLAVES SLOWDNS"
-            tc_opt "3" "GENERAR NUEVO PAR DE CLAVES"
-            tc_opt "4" "REINICIAR SERVICIO"
-            tc_opt "5" "VER LOGS DE SLOWDNS"
-            tc_opt "6" "DESINSTALAR SLOWDNS"
+            tc_opt "1" "DETENER SLOWDNS"
+            tc_opt "2" "RECONFIGURAR DOMINIO / PUERTO / REDIRECCIÓN"
+            tc_opt "3" "VER CLAVES (PUBLICA / PRIVADA)"
+            tc_opt "4" "INGRESAR CLAVES PERSONALIZADAS"
+            tc_opt "5" "REINICIAR SERVICIO"
+            tc_opt "6" "VER LOGS EN VIVO"
             tc_line
-            tc_opt "0" "VOLVER"
+            tc_opt "0" "$(_t 'back')"
             tc_line
             tc_prompt
             read -r opt
             case "$opt" in
-                1|01) tc_slow_configure ;;
-                2|02) tc_slow_show_keys ;;
-                3|03) tc_slow_gen_keys && systemctl restart slowdns && tc_msg_ok "Claves regeneradas y servicio reiniciado." && tc_pause ;;
-                4|04) systemctl restart slowdns >/dev/null 2>&1 && tc_msg_ok "Servicio reiniciado." && tc_pause ;;
-                5|05) journalctl -u slowdns -n 30 --no-pager && tc_pause ;;
-                6|06) tc_slow_uninstall ;;
+                1|01) tc_slow_stop ;;
+                2|02) tc_slow_configure ;;
+                3|03) tc_slow_show_keys ;;
+                4|04) tc_slow_custom_keys ;;
+                5|05)
+                    tc_slow_restart
+                    tc_msg_ok "SlowDNS reiniciado."
+                    tc_pause
+                    ;;
+                6|06)
+                    tc_clear
+                    tc_title "LOGS SLOWDNS (Ctrl+C para salir)"
+                    journalctl -u slowdns -f --no-pager
+                    ;;
                 0|00) break ;;
-                *) tc_msg_err "Opción no válida."; sleep 1 ;;
+                *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
             esac
         fi
     done
 }
-
