@@ -2752,7 +2752,7 @@ EOF
     fi
     clear
     v2ray_title "Nuevo Usuario v2ray ${proto} ${V2SEL_TLS}"
-    printf "\033[1;33mSERVICIO:\033[0m \033[1;37m%s\033[0m\n" "${V2SEL_NAME}"
+    printf "\033[1;33mSERVICIO:\033[0m \033[1;37mv2ray\033[0m\n"
     printf "\033[1;33mPROTOCOLO:\033[0m \033[1;37m%s\033[0m\n" "$proto"
     echo -ne "${SSHPlus_DARK_GREEN}NOMBRE:${SCOLOR} "
     read nick
@@ -2850,9 +2850,108 @@ EOF
     if [[ "$view_json" =~ ^[sS]$ ]]; then
     echo ""
     if [[ "$proto" == "vmess" ]]; then
-    printf '%s\n' "$vmess_json" | jq . 2>/dev/null || printf '%s\n' "$vmess_json"
+    jq -n --arg address "$add_host" --arg port "$ext_port" --arg id "$uuid" --arg network "$network" --arg security "$link_tls" --arg path "$path" --arg host "$host_header" --arg sni "${sni:-You-HostName.com}" '{
+      log: {
+        loglevel: "debug"
+      },
+      inbounds: [
+        {
+          listen: "127.0.0.1",
+          port: "1080",
+          protocol: "socks",
+          settings: {
+            udp: true
+          },
+          tag: "socks"
+        }
+      ],
+      outbounds: [
+        {
+          protocol: "vmess",
+          settings: {
+            vnext: [
+              {
+                address: $address,
+                port: ($port | tonumber),
+                users: [
+                  {
+                    id: $id,
+                    alterId: 0,
+                    security: "auto"
+                  }
+                ]
+              }
+            ]
+          },
+          streamSettings: {
+            network: $network,
+            wsSettings: {
+              headers: {
+                Host: $host
+              },
+              path: $path
+            },
+            security: (if $security == "tls" then "tls" else "none" end),
+            tlsSettings: {
+              allowInsecure: false,
+              fingerprint: "chrome",
+              serverName: $sni
+            }
+          }
+        }
+      ]
+    }'
     else
-    jq -n --arg address "$add_host" --arg port "$ext_port" --arg id "$uuid" --arg network "$network" --arg security "$link_tls" --arg path "$path" --arg host "$host_header" --arg sni "$sni" '{outbounds:[{protocol:"vless",settings:{vnext:[{address:$address,port:($port|tonumber),users:[{id:$id,encryption:"none"}]}]},streamSettings:{network:$network,security:(if $security=="tls" then "tls" else "none" end),wsSettings:{path:$path,headers:{Host:$host}},tlsSettings:{serverName:$sni}}}]}'
+    jq -n --arg address "$add_host" --arg port "$ext_port" --arg id "$uuid" --arg network "$network" --arg security "$link_tls" --arg path "$path" --arg host "$host_header" --arg sni "${sni:-You-HostName.com}" '{
+      log: {
+        loglevel: "debug"
+      },
+      inbounds: [
+        {
+          listen: "127.0.0.1",
+          port: "1080",
+          protocol: "socks",
+          settings: {
+            udp: true
+          },
+          tag: "socks"
+        }
+      ],
+      outbounds: [
+        {
+          protocol: "vless",
+          settings: {
+            vnext: [
+              {
+                address: $address,
+                port: ($port | tonumber),
+                users: [
+                  {
+                    id: $id,
+                    encryption: "none"
+                  }
+                ]
+              }
+            ]
+          },
+          streamSettings: {
+            network: $network,
+            wsSettings: {
+              headers: {
+                Host: $host
+              },
+              path: $path
+            },
+            security: (if $security == "tls" then "tls" else "none" end),
+            tlsSettings: {
+              allowInsecure: false,
+              fingerprint: "chrome",
+              serverName: $sni
+            }
+          }
+        }
+      ]
+    }'
     fi
     fi
     pausa_v2ray
