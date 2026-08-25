@@ -65,69 +65,61 @@ tc_banner_delete() {
     tc_pause
 }
 
-# ── Pegar Banner Personalizado con Confirmación / Cancelar ────
+# ── Pegar Banner Personalizado (Pegar -> Guardar / Cancelar) ──
 tc_banner_paste_custom() {
+    tc_clear
+    tc_title "AGREGAR BANNER PERSONALIZADO"
+
+    printf '%bPegue su código HTML o texto de Banner a continuación:%b\n' "$TC_YELLOW" "$TC_NC"
+    printf '%b(Haga clic derecho o Ctrl+Shift+V para pegar y presione Enter)%b\n\n' "$TC_DARK_GREEN" "$TC_NC"
+
     local tmp_banner="/tmp/banner_input_$$"
+    > "$tmp_banner"
 
-    while true; do
-        tc_clear
-        tc_title "PEGAR BANNER PERSONALIZADO"
-
-        printf '%bInstrucciones:%b\n' "$TC_YELLOW" "$TC_NC"
-        printf ' 1. Copie su código HTML o texto.\n'
-        printf ' 2. Péguelo aquí en la terminal (Clic derecho o Ctrl+Shift+V).\n'
-        printf ' 3. Para terminar de pegar, escriba %bFIN%b en una línea vacía o presione %bCtrl+D%b.\n' "$TC_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC"
-        tc_line
-        printf '%b--- COMIENCE A PEGAR A CONTINUACIÓN ---%b\n' "$TC_CYAN" "$TC_NC"
-
-        > "$tmp_banner"
-
-        while IFS= read -r line; do
-            [[ "$line" == "FIN" || "$line" == "fin" ]] && break
-            echo "$line" >> "$tmp_banner"
+    # Leer primera línea bloqueante
+    read -r first_line
+    if [[ -n "$first_line" ]]; then
+        echo "$first_line" >> "$tmp_banner"
+        # Capturar líneas adicionales si se pegó un bloque multilínea
+        while IFS= read -r -t 0.3 next_line; do
+            echo "$next_line" >> "$tmp_banner"
         done
+    fi
 
-        if [[ ! -s "$tmp_banner" ]]; then
+    if [[ ! -s "$tmp_banner" ]]; then
+        rm -f "$tmp_banner"
+        tc_msg_warn "No se ingresó ningún texto."
+        tc_pause
+        return
+    fi
+
+    # Mostrar vista previa y preguntar si desea Guardar o Cancelar
+    tc_clear
+    tc_title "VISTA PREVIA DEL BANNER"
+    cat "$tmp_banner"
+    echo ""
+    tc_line
+    tc_opt "1" "GUARDAR Y APLICAR BANNER"
+    tc_opt "0" "CANCELAR"
+    tc_line
+    tc_prompt
+    read -r choice
+
+    case "$choice" in
+        1|01)
+            mkdir -p "/etc/tunnelcore"
+            cp -f "$tmp_banner" "$TC_BANNER_FILE"
             rm -f "$tmp_banner"
-            tc_msg_warn "No se ingresó ningún texto."
+            tc_banner_apply
+            tc_msg_ok "¡Banner guardado y aplicado con éxito!"
             tc_pause
-            return
-        fi
-
-        # Mostrar vista previa y preguntar si desea Guardar o Cancelar
-        tc_clear
-        tc_title "VISTA PREVIA DEL BANNER PEGADO"
-        cat "$tmp_banner"
-        echo ""
-        tc_line
-        tc_opt "1" "GUARDAR Y APLICAR BANNER"
-        tc_opt "2" "VOLVER A PEGAR"
-        tc_opt "0" "CANCELAR Y DESCARTAR"
-        tc_line
-        tc_prompt
-        read -r choice
-
-        case "$choice" in
-            1|01)
-                mkdir -p "/etc/tunnelcore"
-                cp -f "$tmp_banner" "$TC_BANNER_FILE"
-                rm -f "$tmp_banner"
-                tc_banner_apply
-                tc_msg_ok "¡Banner guardado y aplicado con éxito!"
-                tc_pause
-                return
-                ;;
-            2|02)
-                continue
-                ;;
-            0|00|*)
-                rm -f "$tmp_banner"
-                tc_msg_warn "Operación cancelada. El banner no se modificó."
-                tc_pause
-                return
-                ;;
-        esac
-    done
+            ;;
+        *)
+            rm -f "$tmp_banner"
+            tc_msg_warn "Operación cancelada. El banner no se modificó."
+            tc_pause
+            ;;
+    esac
 }
 
 tc_banner_menu() {
@@ -144,7 +136,7 @@ tc_banner_menu() {
 
         printf '%bESTADO DEL BANNER:%b %b\n' "$TC_DARK_GREEN" "$TC_NC" "$banner_active"
         tc_line
-        tc_opt "1" "ACTIVAR / APLICAR BANNER"
+        tc_opt "1" "ACTIVAR / APLICAR BANNER ACTUAL"
         tc_opt "2" "PEGAR BANNER PERSONALIZADO (HTML / TEXTO)"
         tc_opt "3" "EDITAR CÓDIGO CON NANO"
         tc_opt "4" "RESTAURAR BANNER POR DEFECTO"
