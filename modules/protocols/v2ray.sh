@@ -17,18 +17,18 @@ TC_V2_SERVICE="/etc/systemd/system/xray.service"
 
 tc_v2_config_file() {
     local cfg
-    for cfg in /etc/v2ray/config.json /usr/local/etc/v2ray/config.json /etc/tunnelcore/v2ray/config.json /usr/local/etc/xray/config.json /etc/xray/config.json; do
+    for cfg in /etc/tunnelcore/v2ray/config.json /etc/v2ray/config.json /usr/local/etc/v2ray/config.json /usr/local/etc/xray/config.json /etc/xray/config.json; do
         [[ -f "$cfg" ]] && echo "$cfg" && return 0
     done
     return 1
 }
 
 tc_v2_is_installed() {
-    command -v v2ray >/dev/null 2>&1 || [[ -n "$(tc_v2_config_file)" ]] || command -v xray >/dev/null 2>&1
+    [[ -x "$TC_V2_BIN" && -f "$TC_V2_CONF" ]] || command -v v2ray >/dev/null 2>&1 || [[ -n "$(tc_v2_config_file)" ]]
 }
 
 tc_v2_is_running() {
-    systemctl is-active --quiet v2ray 2>/dev/null || systemctl is-active --quiet xray 2>/dev/null || pgrep -x v2ray >/dev/null 2>&1 || pgrep -x xray >/dev/null 2>&1
+    systemctl is-active --quiet xray 2>/dev/null || systemctl is-active --quiet v2ray 2>/dev/null || pgrep -x xray >/dev/null 2>&1 || pgrep -x v2ray >/dev/null 2>&1
 }
 
 tc_v2_status_mark() {
@@ -51,12 +51,8 @@ tc_v2_ensure_certs() {
 }
 
 tc_v2_restart() {
-    if systemctl is-active v2ray >/dev/null 2>&1 || systemctl list-unit-files v2ray.service >/dev/null 2>&1; then
-        systemctl restart v2ray >/dev/null 2>&1 || true
-    fi
-    if systemctl is-active xray >/dev/null 2>&1 || systemctl list-unit-files xray.service >/dev/null 2>&1; then
-        systemctl restart xray >/dev/null 2>&1 || true
-    fi
+    systemctl restart xray >/dev/null 2>&1 || true
+    systemctl restart v2ray >/dev/null 2>&1 || true
     if command -v v2ray >/dev/null 2>&1; then
         v2ray restart >/dev/null 2>&1 || true
     fi
@@ -105,7 +101,7 @@ tc_v2_install_core_direct() {
     mkdir -p /usr/local/share/xray /var/log/xray "$TC_V2_DIR" /etc/v2ray
     tc_v2_ensure_certs
 
-    # Config base
+    # Config base multi-protocolo (VMess 80 + VLESS 8080 + VMess TLS 443)
     local init_uuid="$(tc_gen_uuid)"
     cat > "$TC_V2_CONF" <<EOF
 {
@@ -235,46 +231,27 @@ tc_v2_install_official() {
 
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update -y >/dev/null 2>&1 || true
-        apt-get install -y curl wget unzip ca-certificates jq uuid-runtime python3 python3-pip python3-setuptools >/dev/null 2>&1 || true
+        apt-get install -y curl wget unzip ca-certificates jq uuid-runtime openssl >/dev/null 2>&1 || true
     fi
 
-    # Corregir pip en Ubuntu 20.04 (Python 3.8) si falta
-    local py_ver
-    py_ver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "3.8")"
-    if [[ "$py_ver" == "3.8" ]] && ! command -v pip >/dev/null 2>&1 && ! command -v pip3 >/dev/null 2>&1; then
-        curl -fsSL https://bootstrap.pypa.io/pip/3.8/get-pip.py | python3 >/dev/null 2>&1 || true
-    fi
-
-    tc_msg_ok "Iniciando instalación de V2Ray..."
-
-    local installed=0
-    if command -v pip >/dev/null 2>&1 || command -v pip3 >/dev/null 2>&1; then
-        if bash <(curl -sL https://multi.netlify.app/v2ray.sh) -k 2>/dev/null; then
-            installed=1
-        fi
-    fi
-
-    # Si pip falló en Python 3.8, instalar el core directamente sin depender de pip
-    if [[ "$installed" -eq 0 ]] || ! tc_v2_is_installed; then
-        tc_msg_ok "Instalando núcleo V2Ray independiente..."
-        tc_v2_install_core_direct || {
-            tc_msg_err "Error en la instalación de V2Ray."
-            tc_pause
-            return 1
-        }
-    fi
+    tc_msg_ok "Instalando V2Ray oficial de alto rendimiento..."
+    tc_v2_install_core_direct || {
+        tc_msg_err "Error en la instalación de V2Ray."
+        tc_pause
+        return 1
+    }
 
     mkdir -p /etc/tunnelcore
-    touch "$TC_V2_REG"
+    [[ -f "$TC_V2_REG" ]] || touch "$TC_V2_REG"
 
-    local cfg
-    cfg="$(tc_v2_config_file)"
-    if [[ -n "$cfg" ]]; then
-        mkdir -p /etc/v2ray
-        ln -sf "$cfg" /etc/v2ray/config.json 2>/dev/null || cp -f "$cfg" /etc/v2ray/config.json 2>/dev/null || true
+    tc_v2_restart
+
+    if tc_v2_is_running; then
+        tc_msg_ok "¡V2Ray instalado y activo [ON] con éxito!"
+    else
+        systemctl start xray >/dev/null 2>&1 || true
+        tc_msg_ok "¡V2Ray instalado correctamente!"
     fi
-
-    tc_msg_ok "¡Instalación de V2Ray completada con éxito!"
     tc_pause
 }
 
@@ -307,6 +284,20 @@ tc_v2_uninstall_all() {
     rm -rf /etc/v2ray /usr/local/etc/v2ray /etc/xray /usr/local/etc/xray /etc/tunnelcore/v2ray /etc/tunnelcore/v2ray_users.db /etc/tunnelcore/v2ray_domain /etc/tunnelcore/v2ray.env /var/log/v2ray /var/log/xray /root/.v2ray /root/.xray
 
     tc_msg_ok "¡V2Ray / Xray ha sido desinstalado por completo!"
+    tc_pause
+}
+
+# ── Alternar Estado (Iniciar / Detener) ────────────────────────
+tc_v2_toggle_service() {
+    if tc_v2_is_running; then
+        systemctl stop v2ray >/dev/null 2>&1 || true
+        systemctl stop xray >/dev/null 2>&1 || true
+        tc_msg_ok "Servicio V2Ray detenido [OFF]."
+    else
+        systemctl start xray >/dev/null 2>&1 || systemctl start v2ray >/dev/null 2>&1 || true
+        tc_v2_restart
+        tc_msg_ok "Servicio V2Ray iniciado [ON]."
+    fi
     tc_pause
 }
 
@@ -349,11 +340,7 @@ tc_v2_add_user() {
     esac
 
     # Puerto del servidor
-    mapfile -t v2_ports < <(jq -r '.inbounds[]? | select((.settings.clients? | type) == "array") | .port' "$cfg" 2>/dev/null | sed '/^$/d' | sort -n | uniq)
     local selected_port="80"
-    if [[ "${#v2_ports[@]}" -gt 0 ]]; then
-        selected_port="${v2_ports[0]}"
-    fi
 
     # UUID
     local uuid
@@ -439,7 +426,7 @@ tc_v2_add_user() {
     tc_v2_restart
 
     # Obtener Path
-    local path_ws="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // .inbounds[0].streamSettings.xhttpSettings.path // "/tunnelcore"' "$cfg" 2>/dev/null)"
+    local path_ws="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // "/tunnelcore"' "$cfg" 2>/dev/null)"
     [[ -z "$path_ws" || "$path_ws" == "null" ]] && path_ws="/tunnelcore"
 
     # Generar URI
@@ -743,7 +730,7 @@ tc_xray_menu() {
             tc_opt "4" "MODIFICAR UUID DE USUARIO"
             tc_opt "5" "ELIMINAR USUARIO"
             tc_line
-            tc_opt "6" "ABRIR CONSOLA AVANZADA V2RAY"
+            tc_opt "6" "INICIAR / PARAR SERVICIO" "  $(tc_v2_status_mark)"
             tc_opt "7" "CONFIGURAR DOMINIO CDN / HOST"
             tc_opt "8" "REINICIAR SERVICIO V2RAY"
             tc_opt "9" "VER LOGS EN TIEMPO REAL"
@@ -761,14 +748,7 @@ tc_xray_menu() {
                 3|03) tc_v2_renew_user ;;
                 4|04) tc_v2_modify_uuid ;;
                 5|05) tc_v2_del_user ;;
-                6|06)
-                    if command -v v2ray >/dev/null 2>&1; then
-                        v2ray
-                    else
-                        tc_msg_err "Consola v2ray no disponible. Use las opciones del menú de TunnelCore."
-                    fi
-                    tc_pause
-                    ;;
+                6|06) tc_v2_toggle_service ;;
                 7|07)
                     printf '%bNuevo Dominio CDN / Host:%b ' "$TC_DARK_GREEN" "$TC_NC"
                     read -r nd
@@ -786,7 +766,7 @@ tc_xray_menu() {
                 9|09)
                     tc_clear
                     tc_title "LOGS V2RAY EN VIVO (Ctrl+C para salir)"
-                    journalctl -u v2ray -f --no-pager 2>/dev/null || journalctl -u xray -f --no-pager 2>/dev/null
+                    journalctl -u xray -f --no-pager 2>/dev/null || journalctl -u v2ray -f --no-pager 2>/dev/null
                     ;;
                 10) tc_v2_install_official ;;
                 11) tc_v2_uninstall_all ;;
