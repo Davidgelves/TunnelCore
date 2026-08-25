@@ -43,7 +43,7 @@ tc_v2_status_mark() {
 }
 
 tc_v2_load_env() {
-    V2_PROTO="vmess"
+    V2_PROTO="multi"
     V2_NETWORK="ws"
     V2_HTTP_PORT="80"
     V2_TLS_PORT="443"
@@ -59,7 +59,7 @@ tc_v2_load_env() {
 tc_v2_save_env() {
     mkdir -p "$TC_V2_DIR"
     cat > "$TC_V2_ENV" <<EOF
-V2_PROTO="${V2_PROTO:-vmess}"
+V2_PROTO="${V2_PROTO:-multi}"
 V2_NETWORK="${V2_NETWORK:-ws}"
 V2_HTTP_PORT="${V2_HTTP_PORT:-80}"
 V2_TLS_PORT="${V2_TLS_PORT:-443}"
@@ -78,12 +78,23 @@ tc_v2_ensure_certs() {
     fi
 }
 
+tc_v2_free_conflicts() {
+    # Desactivar servidores web residuales que puedan bloquear los puertos 80/443
+    systemctl stop apache2 >/dev/null 2>&1 || true
+    systemctl disable apache2 >/dev/null 2>&1 || true
+    systemctl stop nginx >/dev/null 2>&1 || true
+    systemctl disable nginx >/dev/null 2>&1 || true
+}
+
 tc_v2_restart() {
+    tc_v2_free_conflicts
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable xray >/dev/null 2>&1 || true
     systemctl restart xray >/dev/null 2>&1 || true
-    systemctl restart v2ray >/dev/null 2>&1 || true
     if command -v v2ray >/dev/null 2>&1; then
         v2ray restart >/dev/null 2>&1 || true
     fi
+    sleep 0.5
 }
 
 # ── Descargar Binario Oficial de V2Ray/Xray Core ───────────────
@@ -245,36 +256,6 @@ tc_v2_build_config_from_scratch() {
           "path": "${path}"
         }
       }
-    },
-    {
-      "tag": "vless-ws-tls",
-      "port": 8443,
-      "listen": "0.0.0.0",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "${init_uuid}",
-            "level": 0
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": {
-          "certificates": [
-            {
-              "certificateFile": "${TC_V2_CERT}",
-              "keyFile": "${TC_V2_KEY}"
-            }
-          ]
-        },
-        "wsSettings": {
-          "path": "${path}"
-        }
-      }
     }
   ],
   "outbounds": [
@@ -352,13 +333,14 @@ tc_v2_setup_wizard() {
     }
 
     tc_v2_build_config_from_scratch
-    systemctl restart xray >/dev/null 2>&1
+    tc_v2_restart
 
     if tc_v2_is_running; then
         tc_msg_ok "¡V2Ray configurado e iniciado con éxito [ON]!"
     else
-        tc_msg_warn "V2Ray instalado. Verificando servicio..."
+        tc_msg_warn "Iniciando servicio..."
         systemctl start xray >/dev/null 2>&1 || true
+        tc_v2_restart
     fi
     tc_pause
 }
@@ -572,6 +554,7 @@ tc_v2_modify_uuid() {
     while IFS='|' read -r nick uuid exp || [[ -n "$nick" ]]; do
         nick="$(echo "$nick" | tr -d ' ')"
         uuid="$(echo "$uuid" | tr -d ' ')"
+        exp="$(echo "$exp" | tr -d ' ')"
         [[ -z "$nick" ]] && continue
         users_arr+=("$nick")
         uuids_arr+=("$uuid")
@@ -724,9 +707,18 @@ tc_v2_toggle_service() {
         systemctl stop xray >/dev/null 2>&1 || systemctl stop v2ray >/dev/null 2>&1 || true
         tc_msg_ok "Servicio V2Ray detenido [OFF]."
     else
-        systemctl start xray >/dev/null 2>&1 || systemctl start v2ray >/dev/null 2>&1 || true
-        tc_v2_restart
-        tc_msg_ok "Servicio V2Ray iniciado [ON]."
+        tc_v2_free_conflicts
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl enable xray >/dev/null 2>&1 || true
+        systemctl restart xray >/dev/null 2>&1 || systemctl restart v2ray >/dev/null 2>&1 || true
+        sleep 0.5
+        if tc_v2_is_running; then
+            tc_msg_ok "Servicio V2Ray iniciado [ON] correctamente."
+        else
+            tc_msg_warn "El servicio intentó iniciar pero no está activo."
+            printf '\n%bÚltimos logs de error:%b\n' "$TC_YELLOW" "$TC_NC"
+            journalctl -u xray -n 10 --no-pager 2>/dev/null || journalctl -u v2ray -n 10 --no-pager 2>/dev/null
+        fi
     fi
     tc_pause
 }
