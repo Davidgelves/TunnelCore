@@ -1587,7 +1587,7 @@ EOF
     }
 
     crear_protocolo_v2ray() {
-    local opt proto network tls link_tls port ext_port path domain host_header sni uuid user exp cfg uri enc_path vmess_json vmess_b64 tmp inbound_json
+    local opt proto network tls link_tls port ext_port path domain host_header sni uuid user exp cfg uri enc_path vmess_json vmess_b64 vmess_tls tmp inbound_json
     clear
     v2ray_title "CREAR PROTOCOLO V2RAY / XRAY"
     if ! xhttp_is_installed; then
@@ -1599,18 +1599,24 @@ EOF
     v2ray_opt "1" "VLESS + WebSocket CDN TLS 443"
     v2ray_opt "2" "VLESS + WebSocket sin TLS 80"
     v2ray_opt "3" "VMess + WebSocket sin TLS 80"
-    v2ray_opt "4" "VLESS + XHTTP sin TLS 8443"
+    v2ray_opt "4" "VMess + WebSocket CDN TLS 443"
+    v2ray_opt "5" "VLESS + WebSocket sin TLS 8080"
+    v2ray_opt "6" "VMess + WebSocket sin TLS 8080"
+    v2ray_opt "7" "VLESS + XHTTP sin TLS 8443"
     v2ray_line
     v2ray_opt "0" "VOLVER"
     v2ray_line
-    selection=$(selection_fun 4)
+    selection=$(selection_fun 7)
     [[ "$selection" = "0" ]] && fun_v2raymanager && return
 
     case "$selection" in
       1) proto="vless"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/v2ray" ;;
       2) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
       3) proto="vmess"; network="ws"; tls="none"; link_tls="none"; port="80"; ext_port="80"; path="/v2ray" ;;
-      4) proto="vless"; network="xhttp"; tls="none"; link_tls="none"; port="8443"; ext_port="8443"; path="/xhttp" ;;
+      4) proto="vmess"; network="ws"; tls="none"; link_tls="tls"; port="80"; ext_port="443"; path="/v2ray" ;;
+      5) proto="vless"; network="ws"; tls="none"; link_tls="none"; port="8080"; ext_port="8080"; path="/v2ray" ;;
+      6) proto="vmess"; network="ws"; tls="none"; link_tls="none"; port="8080"; ext_port="8080"; path="/v2ray" ;;
+      7) proto="vless"; network="xhttp"; tls="none"; link_tls="none"; port="8443"; ext_port="8443"; path="/xhttp" ;;
     esac
 
     echo -ne "${SSHPlus_DARK_GREEN}USUARIO [Enter = user]:${SCOLOR} " && read user
@@ -1721,8 +1727,10 @@ EOF
 
     enc_path="$(v2ray_urlencode_path "$path")"
     if [[ "$proto" == "vmess" ]]; then
+    vmess_tls=""
+    [[ "$link_tls" == "tls" ]] && vmess_tls="tls"
     vmess_json=$(cat <<EOF
-{"v":"2","ps":"${user}","add":"${domain}","port":"${port}","id":"${uuid}","aid":"0","scy":"auto","net":"ws","type":"","host":"","path":"${path}","tls":"","sni":"","alpn":"","fp":""}
+{"v":"2","ps":"${user}","add":"${domain}","port":"${ext_port}","id":"${uuid}","aid":"0","scy":"auto","net":"ws","type":"","host":"${host_header}","path":"${path}","tls":"${vmess_tls}","sni":"${sni}","alpn":"","fp":""}
 EOF
 )
     vmess_b64="$(printf '%s' "$vmess_json" | base64 -w 0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
