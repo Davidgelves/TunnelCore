@@ -217,9 +217,10 @@ v2ray_ensure_local_cert() {
     return 0
 }
 v2ray_normalize_inbound_json() {
-    local inbound_json="$1" tls="$2" network="$3" host="$4" path="$5" tag="$6" proto="$7" tmp
+    local inbound_json="$1" tls="$2" network="$3" host="$4" path="$5" tag="$6" proto="$7" sni="${8:-}" tmp
+    [[ -z "$sni" ]] && sni="$host"
     tmp="${inbound_json}.tmp"
-    jq --arg tls "$tls" --arg network "$network" --arg host "$host" --arg path "$path" --arg tag "$tag" --arg proto "$proto" '
+    jq --arg tls "$tls" --arg network "$network" --arg host "$host" --arg path "$path" --arg tag "$tag" --arg proto "$proto" --arg sni "$sni" '
       .tag = $tag |
       (if ((.settings.clients? | type) == "array") then
         .settings.clients |= map(
@@ -233,6 +234,7 @@ v2ray_normalize_inbound_json() {
       .streamSettings.security = $tls |
       (if $tls == "tls" then
         .streamSettings.tlsSettings = {
+          serverName: $sni,
           certificates: [
             {
               certificateFile: "/root/TunnelCore/certificados/local/local.crt",
@@ -275,7 +277,7 @@ v2ray_wizard_screen() {
     [[ -n "$tls" ]] && printf "\033[1;33mTLS:\033[0m \033[1;37m%s\033[0m\n" "$tls" && v2ray_line
 }
 v2ray_install_wizard() {
-    local name default_name type type_label port proto proto_label network network_label host path default_path tls tls_label opt uuid password method cfg port_cfg inbound_json test_log ext_port domain
+    local name default_name type type_label port proto proto_label network network_label host path default_path tls tls_label sni opt uuid password method cfg port_cfg inbound_json test_log ext_port domain
     default_name="$(v2ray_random_name)"
     v2ray_wizard_screen
     echo -ne "${SSHPlus_DARK_GREEN}NOMBRE: [${default_name}]:${SCOLOR} "
@@ -383,6 +385,13 @@ v2ray_install_wizard() {
       2) tls="none"; tls_label="DESACTIVADO" ;;
       *) echo -e "\033[1;31mOpcion no valida.\033[0m"; pausa_v2ray; return 1 ;;
     esac
+    if [[ "$tls" == "tls" ]]; then
+    v2ray_wizard_screen "$name" "$type_label" "$port" "$proto_label" "$network_label" "$host" "$path" "$tls_label"
+    echo -ne "${SSHPlus_DARK_GREEN}DOMINIO/SNI TLS [${host:-local}]:${SCOLOR} "
+    read sni
+    [[ -z "$sni" ]] && sni="${host:-local}"
+    sni="$(printf '%s' "$sni" | tr -d '"\\[:space:]')"
+    fi
 
     while true; do
     v2ray_wizard_screen "$name" "$type_label" "$port" "$proto_label" "$network_label" "$host" "$path" "$tls_label"
@@ -419,10 +428,10 @@ v2ray_install_wizard() {
     method="aes-128-gcm"
     mkdir -p /usr/local/etc/xray /etc/SSHPlus/v2ray /etc/SSHPlus /var/log/xray
     if [[ "$tls" == "tls" ]]; then
-    v2ray_ensure_local_cert "${host:-local}" || { v2ray_install_line "Generando certificado TLS..........." 1; pausa_v2ray; return 1; }
+    v2ray_ensure_local_cert "${sni:-local}" || { v2ray_install_line "Generando certificado TLS..........." 1; pausa_v2ray; return 1; }
     fi
     inbound_json="$(v2ray_write_inbound_json "$proto" "$network" "$tls" "$port" "$path" "$uuid" "$password" "$method" "" "${host}" "" "")"
-    v2ray_normalize_inbound_json "$inbound_json" "$tls" "$network" "$host" "$path" "$name" "$proto" || {
+    v2ray_normalize_inbound_json "$inbound_json" "$tls" "$network" "$host" "$path" "$name" "$proto" "$sni" || {
     rm -f "$inbound_json"
     v2ray_install_line "Normalizando inbound................." 1
     pausa_v2ray
@@ -540,7 +549,7 @@ v2ray_install_wizard() {
     domain="$host"
     [[ -z "$domain" ]] && domain="$(cat /etc/SSHPlus/IP 2>/dev/null || cat /etc/IP 2>/dev/null || v2ray_public_ip)"
     grep -v "^${port}|" /etc/SSHPlus/v2ray/configs.db 2>/dev/null > /etc/SSHPlus/v2ray/configs.db.tmp || true
-    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$port" "$name" "$proto" "$network" "$tls" "$domain" "$path" "$ext_port" >> /etc/SSHPlus/v2ray/configs.db.tmp
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$port" "$name" "$proto" "$network" "$tls" "$domain" "$path" "$ext_port" "$sni" >> /etc/SSHPlus/v2ray/configs.db.tmp
     mv -f /etc/SSHPlus/v2ray/configs.db.tmp /etc/SSHPlus/v2ray/configs.db
     grep -q "$uuid" /etc/SSHPlus/RegV2ray 2>/dev/null || echo "  $uuid | $name | $(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || date '+%Y-%m-%d') " >> /etc/SSHPlus/RegV2ray
     v2ray_line
@@ -2566,7 +2575,7 @@ EOF
     }
 
     v2ray_select_config() {
-    local idx=1 line port name proto network tls domain path ext_port choice
+    local idx=1 line port name proto network tls domain path ext_port sni choice
     V2SEL_PORT=""
     V2SEL_NAME=""
     V2SEL_PROTO=""
@@ -2575,9 +2584,10 @@ EOF
     V2SEL_DOMAIN=""
     V2SEL_PATH=""
     V2SEL_EXT_PORT=""
+    V2SEL_SNI=""
     [[ ! -s /etc/SSHPlus/v2ray/configs.db ]] && return 1
     v2ray_title "SELECTOR DE CONFIGURACION"
-    while IFS='|' read -r port name proto network tls domain path ext_port; do
+    while IFS='|' read -r port name proto network tls domain path ext_port sni; do
     [[ -z "$port" ]] && continue
     printf "\033[1;32m[%s]\033[0m > \033[1;37m%s %s %s %s %s\033[0m\n" "$idx" "$name" "$proto" "$network" "$tls" "$port"
     eval "V2CFG_${idx}_PORT=\"\$port\""
@@ -2588,6 +2598,7 @@ EOF
     eval "V2CFG_${idx}_DOMAIN=\"\$domain\""
     eval "V2CFG_${idx}_PATH=\"\$path\""
     eval "V2CFG_${idx}_EXT_PORT=\"\$ext_port\""
+    eval "V2CFG_${idx}_SNI=\"\$sni\""
     idx=$((idx + 1))
     done < /etc/SSHPlus/v2ray/configs.db
     v2ray_line
@@ -2605,6 +2616,7 @@ EOF
     eval "V2SEL_DOMAIN=\"\$V2CFG_${choice}_DOMAIN\""
     eval "V2SEL_PATH=\"\$V2CFG_${choice}_PATH\""
     eval "V2SEL_EXT_PORT=\"\$V2CFG_${choice}_EXT_PORT\""
+    eval "V2SEL_SNI=\"\$V2CFG_${choice}_SNI\""
     return 0
     }
 
@@ -2654,7 +2666,7 @@ EOF
     }
 
     v2ray_services_status() {
-    local port
+    local port owner
     clear
     v2ray_title "ESTADO DEL SERVICIO"
     for port in $(v2ray_ports_configured); do
@@ -2663,6 +2675,9 @@ EOF
     else
     printf "\033[1;31mv2ray@%s DETENIDO\033[0m\n" "$port"
     fi
+    owner="$(v2ray_port_owner "$port")"
+    [[ -n "$owner" ]] && printf "\033[1;33mPuerto %s:\033[0m \033[1;37m%s\033[0m\n" "$port" "$owner"
+    journalctl -u "v2ray@${port}" -n 3 --no-pager 2>/dev/null | sed 's/^/  /'
     done
     v2ray_line
     pausa_v2ray
@@ -2817,7 +2832,7 @@ EOF
     add_host="$domain"
     host_header=""
     sni=""
-    [[ "$link_tls" == "tls" ]] && host_header="$domain" && sni="$domain"
+    [[ "$link_tls" == "tls" ]] && host_header="$domain" && sni="${V2SEL_SNI:-$domain}"
     enc_path="$(v2ray_urlencode_path "$path")"
     if [[ "$proto" == "vmess" ]]; then
     local tls_value=""
