@@ -6,8 +6,14 @@
 # ═══════════════════════════════════════════════════════════════
 set -uo pipefail
 
+TC_V2_DIR="/etc/tunnelcore/v2ray"
+TC_V2_CONF="${TC_V2_DIR}/config.json"
 TC_V2_REG="/etc/tunnelcore/v2ray_users.db"
 TC_V2_DOMAIN_FILE="/etc/tunnelcore/v2ray_domain"
+TC_V2_CERT="${TC_V2_DIR}/server.crt"
+TC_V2_KEY="${TC_V2_DIR}/server.key"
+TC_V2_BIN="/usr/local/bin/xray"
+TC_V2_SERVICE="/etc/systemd/system/xray.service"
 
 tc_v2_config_file() {
     local cfg
@@ -35,6 +41,15 @@ tc_v2_status_mark() {
     fi
 }
 
+tc_v2_ensure_certs() {
+    mkdir -p "$TC_V2_DIR"
+    if [[ ! -f "$TC_V2_CERT" || ! -f "$TC_V2_KEY" ]]; then
+        openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
+            -keyout "$TC_V2_KEY" -out "$TC_V2_CERT" -subj "/CN=tunnelcore-v2ray" >/dev/null 2>&1 || true
+        chmod 600 "$TC_V2_KEY" "$TC_V2_CERT" 2>/dev/null || true
+    fi
+}
+
 tc_v2_restart() {
     if systemctl is-active v2ray >/dev/null 2>&1 || systemctl list-unit-files v2ray.service >/dev/null 2>&1; then
         systemctl restart v2ray >/dev/null 2>&1 || true
@@ -47,21 +62,206 @@ tc_v2_restart() {
     fi
 }
 
-# ── Instalador Oficial V2Ray ──────────────────────────────────
+# ── Descargar e instalar binario oficial directo ──────────────
+tc_v2_install_core_direct() {
+    tc_require_cmd "curl" "curl"
+    tc_require_cmd "unzip" "unzip"
+    tc_require_cmd "jq" "jq"
+
+    local arch asset
+    arch="$(tc_detect_arch)"
+    case "$arch" in
+        amd64) asset="Xray-linux-64.zip" ;;
+        arm64) asset="Xray-linux-arm64-v8a.zip" ;;
+        arm)   asset="Xray-linux-arm32-v7a.zip" ;;
+        *)
+            tc_msg_err "Arquitectura no soportada para V2Ray: $arch"
+            return 1
+            ;;
+    esac
+
+    local xray_url="https://github.com/XTLS/Xray-core/releases/latest/download/${asset}"
+    local tmp_dir="/tmp/xray-install-$$"
+    mkdir -p "$tmp_dir"
+
+    tc_msg_ok "Descargando núcleo V2Ray/Xray para $arch..."
+    if ! curl -fsSL --connect-timeout 5 --max-time 60 -o "${tmp_dir}/xray.zip" "$xray_url"; then
+        wget -q --timeout=30 -O "${tmp_dir}/xray.zip" "$xray_url" || {
+            tc_msg_err "Error descargando núcleo V2Ray."
+            rm -rf "$tmp_dir"
+            return 1
+        }
+    fi
+
+    unzip -q -o "${tmp_dir}/xray.zip" -d "$tmp_dir" >/dev/null 2>&1 || {
+        tc_msg_err "Error al descomprimir archivo V2Ray."
+        rm -rf "$tmp_dir"
+        return 1
+    }
+
+    install -m 755 "${tmp_dir}/xray" "$TC_V2_BIN"
+    rm -rf "$tmp_dir"
+
+    mkdir -p /usr/local/share/xray /var/log/xray "$TC_V2_DIR" /etc/v2ray
+    tc_v2_ensure_certs
+
+    # Config base
+    local init_uuid="$(tc_gen_uuid)"
+    cat > "$TC_V2_CONF" <<EOF
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/var/log/xray/access.log",
+    "error": "/var/log/xray/error.log"
+  },
+  "inbounds": [
+    {
+      "tag": "vmess-ws-http",
+      "port": 80,
+      "listen": "0.0.0.0",
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          {
+            "id": "${init_uuid}",
+            "alterId": 0
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/tunnelcore"
+        }
+      }
+    },
+    {
+      "tag": "vless-ws-http",
+      "port": 8080,
+      "listen": "0.0.0.0",
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "${init_uuid}",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/tunnelcore"
+        }
+      }
+    },
+    {
+      "tag": "vmess-ws-tls",
+      "port": 443,
+      "listen": "0.0.0.0",
+      "protocol": "vmess",
+      "settings": {
+        "clients": [
+          {
+            "id": "${init_uuid}",
+            "alterId": 0
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "${TC_V2_CERT}",
+              "keyFile": "${TC_V2_KEY}"
+            }
+          ]
+        },
+        "wsSettings": {
+          "path": "/tunnelcore"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "blocked"
+    }
+  ]
+}
+EOF
+
+    ln -sf "$TC_V2_CONF" /etc/v2ray/config.json 2>/dev/null || true
+
+    cat > "$TC_V2_SERVICE" <<EOF
+[Unit]
+Description=TunnelCore Xray/V2Ray Service
+After=network.target nss-lookup.target
+
+[Service]
+User=root
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=${TC_V2_BIN} run -config ${TC_V2_CONF}
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload >/dev/null 2>&1
+    systemctl enable xray >/dev/null 2>&1
+    systemctl restart xray >/dev/null 2>&1
+}
+
+# ── Instalador Inteligente V2Ray ──────────────────────────────
 tc_v2_install_official() {
     tc_clear
     tc_title "INSTALAR V2RAY / XRAY"
 
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update -y >/dev/null 2>&1 || true
-        apt-get install -y curl wget unzip ca-certificates jq uuid-runtime >/dev/null 2>&1 || true
+        apt-get install -y curl wget unzip ca-certificates jq uuid-runtime python3 python3-pip python3-setuptools >/dev/null 2>&1 || true
     fi
 
-    tc_msg_ok "Descargando e iniciando instalador Multi-V2Ray..."
-    
-    # Ejecutar instalador oficial
-    if ! bash <(curl -sL https://multi.netlify.app/v2ray.sh) -k 2>/dev/null; then
-        bash <(curl -sL https://raw.githubusercontent.com/Jrohy/multi-v2ray/master/v2ray.sh) || true
+    # Corregir pip en Ubuntu 20.04 (Python 3.8) si falta
+    local py_ver
+    py_ver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "3.8")"
+    if [[ "$py_ver" == "3.8" ]] && ! command -v pip >/dev/null 2>&1 && ! command -v pip3 >/dev/null 2>&1; then
+        curl -fsSL https://bootstrap.pypa.io/pip/3.8/get-pip.py | python3 >/dev/null 2>&1 || true
+    fi
+
+    tc_msg_ok "Iniciando instalación de V2Ray..."
+
+    local installed=0
+    if command -v pip >/dev/null 2>&1 || command -v pip3 >/dev/null 2>&1; then
+        if bash <(curl -sL https://multi.netlify.app/v2ray.sh) -k 2>/dev/null; then
+            installed=1
+        fi
+    fi
+
+    # Si pip falló en Python 3.8, instalar el core directamente sin depender de pip
+    if [[ "$installed" -eq 0 ]] || ! tc_v2_is_installed; then
+        tc_msg_ok "Instalando núcleo V2Ray independiente..."
+        tc_v2_install_core_direct || {
+            tc_msg_err "Error en la instalación de V2Ray."
+            tc_pause
+            return 1
+        }
     fi
 
     mkdir -p /etc/tunnelcore
@@ -74,7 +274,7 @@ tc_v2_install_official() {
         ln -sf "$cfg" /etc/v2ray/config.json 2>/dev/null || cp -f "$cfg" /etc/v2ray/config.json 2>/dev/null || true
     fi
 
-    tc_msg_ok "¡Instalación de V2Ray completada!"
+    tc_msg_ok "¡Instalación de V2Ray completada con éxito!"
     tc_pause
 }
 
@@ -239,8 +439,8 @@ tc_v2_add_user() {
     tc_v2_restart
 
     # Obtener Path
-    local path_ws="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // .inbounds[0].streamSettings.xhttpSettings.path // "/v2ray"' "$cfg" 2>/dev/null)"
-    [[ -z "$path_ws" || "$path_ws" == "null" ]] && path_ws="/v2ray"
+    local path_ws="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // .inbounds[0].streamSettings.xhttpSettings.path // "/tunnelcore"' "$cfg" 2>/dev/null)"
+    [[ -z "$path_ws" || "$path_ws" == "null" ]] && path_ws="/tunnelcore"
 
     # Generar URI
     local uri=""
@@ -565,7 +765,7 @@ tc_xray_menu() {
                     if command -v v2ray >/dev/null 2>&1; then
                         v2ray
                     else
-                        tc_msg_err "Comando v2ray no encontrado."
+                        tc_msg_err "Consola v2ray no disponible. Use las opciones del menú de TunnelCore."
                     fi
                     tc_pause
                     ;;
