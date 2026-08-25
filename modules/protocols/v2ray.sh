@@ -1540,8 +1540,54 @@ EOF
     menu_xray_xhttp
     }
 
+    v2ray_write_inbound_json() {
+    local proto="$1" network="$2" tls="$3" port="$4" path="$5" uuid="$6" tmp_json
+    tmp_json="$(mktemp)"
+    if [[ "$proto" == "vmess" ]]; then
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "vmess-ws-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "vmess",
+  "settings": {
+    "clients": [
+      { "id": "${uuid}", "alterId": 0 }
+    ]
+  },
+  "streamSettings": {
+    "network": "ws",
+    "security": "none",
+    "wsSettings": { "path": "${path}" }
+  }
+}
+EOF
+    else
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "${proto}-${network}-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "vless",
+  "settings": {
+    "clients": [
+      { "id": "${uuid}" }
+    ],
+    "decryption": "none"
+  },
+  "streamSettings": {
+    "network": "${network}",
+    "security": "${tls}",
+    "${network}Settings": { "path": "${path}" }
+  }
+}
+EOF
+    fi
+    echo "$tmp_json"
+    }
+
     crear_protocolo_v2ray() {
-    local opt proto network tls link_tls port ext_port path domain host_header sni uuid user exp cfg uri enc_path vmess_json vmess_b64
+    local opt proto network tls link_tls port ext_port path domain host_header sni uuid user exp cfg uri enc_path vmess_json vmess_b64 tmp inbound_json
     clear
     v2ray_title "CREAR PROTOCOLO V2RAY / XRAY"
     if ! xhttp_is_installed; then
@@ -1611,62 +1657,56 @@ EOF
     mkdir -p /usr/local/etc/xray /etc/SSHPlus/v2ray /etc/v2ray /etc/SSHPlus
     [[ -f "$cfg" ]] && cp "$cfg" "$cfg.bak-$(date +%s)"
 
-    if [[ "$proto" == "vmess" ]]; then
-    cat > "$cfg" <<EOF
+    if [[ ! -s "$cfg" ]]; then
+    cat > "$cfg" <<'EOF'
 {
   "log": { "loglevel": "warning" },
-  "inbounds": [
-    {
-      "tag": "vmess-ws",
-      "listen": "0.0.0.0",
-      "port": ${port},
-      "protocol": "vmess",
-      "settings": {
-        "clients": [
-          { "id": "${uuid}", "alterId": 0 }
-        ]
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": { "path": "${path}" }
-      }
-    }
-  ],
-  "outbounds": [
-    { "protocol": "freedom", "tag": "direct" }
-  ]
-}
-EOF
-    else
-    cat > "$cfg" <<EOF
-{
-  "log": { "loglevel": "warning" },
-  "inbounds": [
-    {
-      "tag": "${proto}-${network}",
-      "listen": "0.0.0.0",
-      "port": ${port},
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          { "id": "${uuid}" }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "${network}",
-        "security": "${tls}",
-        "${network}Settings": { "path": "${path}" }
-      }
-    }
-  ],
+  "inbounds": [],
   "outbounds": [
     { "protocol": "freedom", "tag": "direct" }
   ]
 }
 EOF
     fi
+
+    inbound_json="$(v2ray_write_inbound_json "$proto" "$network" "$tls" "$port" "$path" "$uuid")"
+    tmp="${cfg}.tmp"
+    if ! v2ray_require_jq; then
+    echo -e "\033[1;31mjq no esta instalado; no se puede modificar config.json.\033[0m"
+    rm -f "$inbound_json"
+    pausa_v2ray
+    fun_v2raymanager
+    return
+    fi
+    jq --argjson port "$port" --arg proto "$proto" --arg network "$network" --arg path "$path" --arg uuid "$uuid" --slurpfile inbound "$inbound_json" '
+      .log = (.log // { "loglevel": "warning" }) |
+      .outbounds = ((.outbounds // []) | if length == 0 then [{ "protocol": "freedom", "tag": "direct" }] else . end) |
+      .inbounds = (
+        (.inbounds // []) as $inbounds |
+        if ($inbounds | any(.port == $port and .protocol == $proto and (.streamSettings.network // "tcp") == $network and ((.streamSettings.wsSettings.path // .streamSettings.xhttpSettings.path // "") == $path))) then
+          $inbounds | map(
+            if (.port == $port and .protocol == $proto and (.streamSettings.network // "tcp") == $network and ((.streamSettings.wsSettings.path // .streamSettings.xhttpSettings.path // "") == $path)) then
+              if (.settings.clients | any(.id == $uuid)) then
+                .
+              else
+                .settings.clients += [($inbound[0].settings.clients[0])]
+              end
+            else
+              .
+            end
+          )
+        else
+          ($inbounds | map(select(.port != $port)) + [$inbound[0]])
+        end
+      )
+    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || {
+    rm -f "$tmp" "$inbound_json"
+    echo -e "\033[1;31mNo se pudo agregar el inbound al config.json.\033[0m"
+    pausa_v2ray
+    fun_v2raymanager
+    return
+    }
+    rm -f "$inbound_json"
 
     ln -sf "$cfg" /etc/v2ray/config.json 2>/dev/null || true
     if /usr/local/bin/xray test -config "$cfg" >/dev/null 2>&1; then
