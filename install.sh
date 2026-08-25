@@ -1,9 +1,7 @@
 #!/bin/bash
-# ═══════════════════════════════════════════════════════════════
-#  TunnelCore — Instalador Automático
-#  Uso: bash <(curl -fsSL https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh)
-#  Autor: J DAVID AG
-# ═══════════════════════════════════════════════════════════════
+# TunnelCore - Instalador automatico
+# Uso: bash <(curl -fsSL https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh)
+# Autor: J DAVID AG
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -14,70 +12,104 @@ CYAN='\033[1;38;2;76;228;255m'
 WHITE='\033[1;37m'
 NC='\033[0m'
 
+tc_install_line() {
+    echo -e "${CYAN}============================================================${NC}"
+}
+
+tc_install_step() {
+    echo -e "${YELLOW}[*] $1${NC}"
+}
+
+tc_install_ok() {
+    echo -e "${GREEN}[OK] $1${NC}"
+}
+
+tc_install_fail() {
+    echo -e "${RED}[ERROR] $1${NC}"
+}
+
+tc_install_os_name() {
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        echo "${PRETTY_NAME:-${ID} ${VERSION_ID}}"
+    else
+        echo "Linux"
+    fi
+}
+
 clear
-echo -e "${CYAN}============================================================${NC}"
+tc_install_line
 echo -e "${CYAN}                INSTALADOR TUNNELCORE v1.0.0               ${NC}"
-echo -e "${CYAN}============================================================${NC}"
+tc_install_line
 echo ""
 
-# 1. Verificar root
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    echo -e "${RED}[✗] Debe ejecutarse como usuario root.${NC}"
+    tc_install_fail "Debe ejecutarse como usuario root."
     exit 1
 fi
 
-# 2. Instalar dependencias esenciales
-echo -e "${YELLOW}[*] Actualizando repositorios e instalando paquetes necesarios...${NC}"
-apt-get update -y >/dev/null 2>&1 || true
-apt-get install -y curl wget git python3 unzip jq iptables net-tools ca-certificates >/dev/null 2>&1 || {
-    echo -e "${RED}[✗] Error instalando paquetes de sistema.${NC}"
+tc_install_line
+echo -e "${WHITE}                 Instalacion de dependencias                ${NC}"
+echo -e "${YELLOW}                 $(tc_install_os_name)                      ${NC}"
+tc_install_line
+
+if ! command -v apt-get >/dev/null 2>&1; then
+    tc_install_fail "Este instalador requiere Debian/Ubuntu con apt-get."
+    exit 1
+fi
+
+tc_install_step "Actualizando repositorios del sistema..."
+apt-get update -y || true
+
+tc_install_step "Instalando paquetes necesarios..."
+TC_PACKAGES=(curl wget git python3 unzip jq iptables net-tools ca-certificates openssl lsof)
+apt-get install -y "${TC_PACKAGES[@]}" || {
+    tc_install_fail "No se pudieron instalar las dependencias base."
+    echo -e "${WHITE}Paquetes requeridos:${NC} ${TC_PACKAGES[*]}"
     exit 1
 }
+tc_install_ok "Dependencias instaladas correctamente."
 
-# 3. Directorio de instalación
 INSTALL_DIR="/opt/tunnelcore"
 REPO_URL="${TC_INSTALL_REPO:-https://github.com/Davidgelves/TunnelCore.git}"
 
-echo -e "${YELLOW}[*] Descargando archivos de TunnelCore...${NC}"
+tc_install_step "Descargando archivos de TunnelCore..."
 rm -rf "$INSTALL_DIR"
 if git clone --depth=1 "$REPO_URL" "$INSTALL_DIR" >/dev/null 2>&1; then
-    echo -e "${GREEN}[✓] Repositorio clonado con éxito.${NC}"
+    tc_install_ok "Repositorio clonado con exito."
 else
-    # Fallback con tarball si git falla
     mkdir -p "$INSTALL_DIR"
     curl -fsSL "https://github.com/Davidgelves/TunnelCore/archive/refs/heads/main.tar.gz" -o /tmp/tc.tar.gz 2>/dev/null || true
     if [[ -s /tmp/tc.tar.gz ]]; then
         tar -xzf /tmp/tc.tar.gz -C /tmp
         cp -rf /tmp/TunnelCore-main/* "$INSTALL_DIR/" 2>/dev/null || true
         rm -rf /tmp/tc.tar.gz /tmp/TunnelCore-main
+        tc_install_ok "Archivos descargados por tarball."
     else
-        echo -e "${RED}[✗] Error descargando TunnelCore.${NC}"
+        tc_install_fail "Error descargando TunnelCore."
         exit 1
     fi
 fi
 
-# 4. Permisos y enlaces simbólicos (para ejecutar con 'tunnelcore' o 'menu')
+tc_install_step "Configurando permisos y comandos del sistema..."
 chmod -R +x "${INSTALL_DIR}"
 ln -sf "${INSTALL_DIR}/tunnelcore" /usr/local/bin/tunnelcore
 ln -sf "${INSTALL_DIR}/tunnelcore" /usr/bin/tunnelcore 2>/dev/null || true
 ln -sf "${INSTALL_DIR}/tunnelcore" /bin/tunnelcore 2>/dev/null || true
-
 ln -sf "${INSTALL_DIR}/tunnelcore" /usr/local/bin/menu
 ln -sf "${INSTALL_DIR}/tunnelcore" /usr/bin/menu 2>/dev/null || true
 ln -sf "${INSTALL_DIR}/tunnelcore" /bin/menu 2>/dev/null || true
 
-# Configurar alias en .bashrc
 if ! grep -q "alias menu=" /root/.bashrc 2>/dev/null; then
     echo "alias menu='tunnelcore'" >> /root/.bashrc
 fi
 
-# 5. Directorios de configuración y sincronización de binarios
+tc_install_step "Preparando directorios de configuracion..."
 mkdir -p /etc/tunnelcore/passwords /etc/tunnelcore/backups /etc/tunnelcore/proxy
 chmod 700 /etc/tunnelcore/passwords
 [[ -f /etc/tunnelcore/users.db ]] || touch /etc/tunnelcore/users.db
 chmod 600 /etc/tunnelcore/users.db
 
-# Registrar shells en /etc/shells para Dropbear y OpenSSH
 grep -qxF "/bin/false" /etc/shells 2>/dev/null || echo "/bin/false" >> /etc/shells
 grep -qxF "/usr/sbin/nologin" /etc/shells 2>/dev/null || echo "/usr/sbin/nologin" >> /etc/shells
 
@@ -106,14 +138,12 @@ if systemctl is-active --quiet dropbear 2>/dev/null; then
 fi
 
 echo ""
-echo -e "${GREEN}============================================================${NC}"
-echo -e "${GREEN}        ¡TUNNELCORE INSTALADO CORRECTAMENTE!               ${NC}"
-echo -e "${GREEN}============================================================${NC}"
-echo -e "${WHITE}Para abrir el menú en cualquier momento, escriba:${NC} ${CYAN}menu${NC} ${WHITE}o${NC} ${CYAN}tunnelcore${NC}"
-echo -e "${GREEN}============================================================${NC}"
+tc_install_line
+echo -e "${GREEN}        TUNNELCORE INSTALADO CORRECTAMENTE                 ${NC}"
+tc_install_line
+echo -e "${WHITE}Para abrir el menu en cualquier momento, escriba:${NC} ${CYAN}menu${NC} ${WHITE}o${NC} ${CYAN}tunnelcore${NC}"
+tc_install_line
 echo ""
 sleep 1
 
-# 6. Lanzar menú
 /usr/local/bin/tunnelcore
-
