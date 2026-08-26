@@ -305,7 +305,7 @@ tc_user_remove() {
         fi
 
         printf '%b[%d]%b > %b%-20s%b %-12s %b\n' \
-            "$TC_RED" "$idx" "$TC_NC" \
+            "$TC_GREEN" "$idx" "$TC_NC" \
             "$TC_WHITE" "$u" "$TC_NC" \
             "$exp_d" "$st"
         ((idx++))
