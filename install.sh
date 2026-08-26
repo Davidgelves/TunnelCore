@@ -43,6 +43,7 @@ tc_install_fail() {
 }
 
 tc_install_login_banner() {
+    touch /root/.hushlogin 2>/dev/null || true
     cat > /etc/profile.d/tunnelcore.sh <<'EOF'
 #!/bin/bash
 case "$-" in
@@ -57,25 +58,25 @@ export TUNNELCORE_BANNER_SHOWN=1
 TC_RED='\033[1;31m'
 TC_GREEN='\033[1;32m'
 TC_YELLOW='\033[1;33m'
-TC_CYAN='\033[1;36m'
+TC_CYAN='\033[1;38;2;76;228;255m'
 TC_WHITE='\033[1;37m'
 TC_NC='\033[0m'
 
-echo -e "${TC_GREEN}"
+echo -e "${TC_CYAN}"
 cat <<'BANNER'
- _______                         _  _____
-|__   __|                       | |/ ____|
-   | |_   _ _ __  _ __   ___  | | |     ___  _ __ ___
-   | | | | | '_ \| '_ \ / _ \ | | |    / _ \| '__/ _ \
-   | | |_| | | | | | | |  __/ | | |___| (_) | | |  __/
-   |_|\__,_|_| |_|_| |_|\___| |_|\_____\___/|_|  \___|
+ _______                     _  _____
+|__   __|                   | |/ ____|
+   | |_   _ _ __  _ __   ___| | |     ___  _ __ ___
+   | | | | | '_ \| '_ \ / _ \ | |    / _ \| '__/ _ \
+   | | |_| | | | | | | |  __/ | |___| (_) | | |  __/
+   |_|\__,_|_| |_|_| |_|\___|_|\_____\___/|_|  \___|
 BANNER
 echo -e "${TC_NC}"
 echo -e "            ${TC_CYAN}TUNNELCORE${TC_NC}"
 echo ""
-echo -e "    ${TC_YELLOW}Desarrollador:${TC_NC} ${TC_WHITE}J DAVID AG${TC_NC}"
+echo -e "    ${TC_CYAN}Desarrollador:${TC_NC} ${TC_WHITE}J DAVID AG${TC_NC}"
 echo ""
-echo -e "   ${TC_GREEN}Escriba${TC_NC} ${TC_YELLOW}\"menu\"${TC_NC} ${TC_GREEN}para ingresar${TC_NC}"
+echo -e "   ${TC_CYAN}Escriba${TC_NC} ${TC_WHITE}\"menu\"${TC_NC} ${TC_CYAN}para ingresar${TC_NC}"
 echo ""
 EOF
     chmod +x /etc/profile.d/tunnelcore.sh
