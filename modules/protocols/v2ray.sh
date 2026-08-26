@@ -231,10 +231,10 @@ v2ray_normalize_inbound_json() {
           end
         )
       else . end) |
+      .domain = "local" |
       .streamSettings.security = $tls |
       (if $tls == "tls" then
         .streamSettings.tlsSettings = {
-          serverName: $sni,
           certificates: [
             {
               certificateFile: "/root/TunnelCore/certificados/local/local.crt",
@@ -351,7 +351,7 @@ v2ray_install_wizard() {
 
     if [[ "$network" == "ws" ]]; then
     v2ray_wizard_screen "$name" "$type_label" "$port" "$proto_label" "$network_label"
-    echo -ne "${SSHPlus_DARK_GREEN}HOST WEBSOCKET:${SCOLOR} "
+    echo -ne "${SSHPlus_DARK_GREEN}HOST WEBSOCKET / BUG HOST:${SCOLOR} "
     read host
     host="$(printf '%s' "$host" | tr -d '"\\[:space:]')"
     fi
@@ -2094,7 +2094,7 @@ EOF
   "protocol": "vmess",
   "settings": {
     "clients": [
-      { "id": "${uuid}", "alterId": 0, "email": "${proto}-${port}", "level": 0 }
+      { "id": "${uuid}", "email": "${proto}-${port}", "level": 0 }
     ]
   },
   "streamSettings": {
@@ -2112,7 +2112,7 @@ EOF
   "protocol": "vmess",
   "settings": {
     "clients": [
-      { "id": "${uuid}", "alterId": 0, "email": "${proto}-${port}", "level": 0 }
+      { "id": "${uuid}", "email": "${proto}-${port}", "level": 0 }
     ]
   },
   "streamSettings": {
@@ -2801,7 +2801,7 @@ EOF
         if $proto == "vless" then
           {"id": $uuid, "email": $email}
         else
-          {"id": $uuid, "alterId": 0, "email": $email, "security": "auto"}
+          {"id": $uuid, "email": $email, "level": 0}
         end
       )]
     ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || {
