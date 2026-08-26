@@ -22,6 +22,8 @@ tc_settings_update() {
             git fetch --all >/dev/null 2>&1
             git reset --hard "origin/${branch}" >/dev/null 2>&1
         )
+        chmod -R +x "$install_dir" 2>/dev/null || true
+        chmod 755 "${install_dir}/tunnelcore" 2>/dev/null || true
         tc_msg_ok "TunnelCore actualizado correctamente vía git."
     else
         # Si no fue clonado con git, descargar tarball
@@ -33,7 +35,8 @@ tc_settings_update() {
             tar -xzf "$tmp_tar" -C /tmp
             cp -rf "/tmp/TunnelCore-${branch}/"* "$install_dir/" 2>/dev/null || cp -rf "/tmp/TunnelCore-"*/* "$install_dir/" 2>/dev/null || true
             rm -rf "$tmp_tar" "/tmp/TunnelCore-"*
-            chmod +x "${install_dir}/tunnelcore"
+            chmod -R +x "$install_dir" 2>/dev/null || true
+            chmod 755 "${install_dir}/tunnelcore" 2>/dev/null || true
             tc_msg_ok "TunnelCore actualizado correctamente."
         else
             tc_msg_err "No se pudo descargar la actualización."
@@ -144,4 +147,3 @@ tc_settings_menu() {
         esac
     done
 }
-

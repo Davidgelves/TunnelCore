@@ -274,8 +274,6 @@ tc_main_menu() {
             10)   tc_module_extras ;;
             11)   tc_reboot_vps ;;
             12|0|00|q|Q)
-                tc_clear
-                tc_msg_ok "$(_t 'goodbye')"
                 exit 0
                 ;;
             *)

@@ -61,34 +61,26 @@ TC_YELLOW='\033[1;33m'
 TC_CYAN='\033[1;38;2;76;228;255m'
 TC_WHITE='\033[1;37m'
 TC_NC='\033[0m'
-TC_COLS="$(tput cols 2>/dev/null || echo 80)"
-[[ ! "$TC_COLS" =~ ^[0-9]+$ ]] && TC_COLS=80
-tc_center() {
-    local line="$1" width pad
-    width="${#line}"
-    pad=$(( (TC_COLS - width) / 2 ))
-    [[ "$pad" -lt 0 ]] && pad=0
-    printf "%*s%s\n" "$pad" "" "$line"
-}
-
 echo -e "${TC_CYAN}"
-tc_center ' _______                     _  _____'
-tc_center '|__   __|                   | |/ ____|'
-tc_center '   | |_   _ _ __  _ __   ___| | |     ___  _ __ ___'
-tc_center "   | | | | | '_ \| '_ \ / _ \ | |    / _ \| '__/ _ \\"
-tc_center '   | | |_| | | | | | | |  __/ | |___| (_) | | |  __/'
-tc_center '   |_|\__,_|_| |_|_| |_|\___|_|\_____\___/|_|  \___|'
+cat <<'BANNER'
+ _______                     _  _____
+|__   __|                   | |/ ____|
+   | |_   _ _ __  _ __   ___| | |     ___  _ __ ___
+   | | | | | '_ \| '_ \ / _ \ | |    / _ \| '__/ _ \
+   | | |_| | | | | | | |  __/ | |___| (_) | | |  __/
+   |_|\__,_|_| |_|_| |_|\___|_|\_____\___/|_|  \___|
+BANNER
 echo -e "${TC_NC}"
 echo -e "${TC_CYAN}"
-tc_center "TUNNELCORE"
+echo "            TUNNELCORE"
 echo -e "${TC_NC}"
 echo ""
 echo -e "${TC_CYAN}"
-tc_center "Desarrollador: J DAVID AG"
+echo "    Desarrollador: J DAVID AG"
 echo -e "${TC_NC}"
 echo ""
 echo -e "${TC_CYAN}"
-tc_center 'Escriba "menu" para ingresar'
+echo '   Escriba "menu" para ingresar'
 echo -e "${TC_NC}"
 echo ""
 EOF
@@ -161,6 +153,7 @@ fi
 
 tc_install_progress "Configurando permisos y comandos del sistema..."
 chmod -R +x "${INSTALL_DIR}"
+chmod 755 "${INSTALL_DIR}/tunnelcore"
 ln -sf "${INSTALL_DIR}/tunnelcore" /usr/local/bin/tunnelcore
 ln -sf "${INSTALL_DIR}/tunnelcore" /usr/bin/tunnelcore 2>/dev/null || true
 ln -sf "${INSTALL_DIR}/tunnelcore" /bin/tunnelcore 2>/dev/null || true
