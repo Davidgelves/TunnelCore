@@ -217,15 +217,15 @@ tc_main_menu() {
         tc_line
 
         # Fila 1: Sistema / RAM / CPU
-        tc_header_label_cell "$(_t 'system')" 20
+        tc_header_label_cell "$(_t 'system')" 22
         tc_header_label_cell "$(_t 'ram')" 20
         tc_header_label_cell "$(_t 'processor')" 18
         printf '\n'
-        tc_header_value_cell "OS" "${os_short}" 20
+        tc_header_value_cell "OS" "${os_short}" 22
         tc_header_value_cell "$(_t 'total')" "${ram_total}" 20
         tc_header_value_cell "$(_t 'cores')" "${cpu_cores}" 18
         printf '\n'
-        tc_header_value_cell "$(_t 'time')" "${hora}" 20
+        tc_header_value_cell "$(_t 'time')" "${hora}" 22
         tc_header_value_cell "RAM" "${ram_pct}" 20
         tc_header_value_cell "CPU" "${cpu_pct}" 18
         printf '\n'
