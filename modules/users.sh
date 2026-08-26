@@ -77,7 +77,20 @@ tc_user_active_conns() {
 }
 
 tc_get_user_exp_days() {
-    local user="$1" raw exp today days
+    local user="$1" raw exp today days db_exp now left mins
+    db_exp="$(grep -E "^[[:space:]]*${user}[[:space:]]*\|" "$TC_USERS_DB" 2>/dev/null | tail -1 | cut -d'|' -f2 | tr -d ' ')"
+    if [[ "$db_exp" =~ ^test:([0-9]+):([0-9]+)$ ]]; then
+        now="$(date +%s)"
+        exp="${BASH_REMATCH[1]}"
+        if (( now >= exp )); then
+            echo "Vencido"
+        else
+            left=$((exp - now))
+            mins=$(( (left + 59) / 60 ))
+            echo "${mins} Minutos"
+        fi
+        return
+    fi
     raw="$(chage -l "$user" 2>/dev/null | awk -F: '/Account expires|La cuenta caduca|Cuenta expira|conta expira/ {gsub(/^ +/,"",$2); print $2; exit}')"
     [[ -z "$raw" ]] && raw="$(chage -l "$user" 2>/dev/null | grep -iE 'expires|caduca|expira' | head -1 | awk -F: '{gsub(/^ +/,"",$2); print $2}')"
     if [[ -z "$raw" || "$raw" =~ ^(never|nunca)$ ]]; then
@@ -236,8 +249,9 @@ tc_user_create_test() {
     }
     (echo "$pass"; echo "$pass") | passwd "$nome" >/dev/null 2>&1
 
-    local exp_date
-    exp_date="$(date '+%Y-%m-%d')"
+    local exp_date exp_ts
+    exp_ts="$(date -d "+${u_temp} minutes" +%s 2>/dev/null || echo $(( $(date +%s) + (u_temp * 60) )))"
+    exp_date="test:${exp_ts}:${u_temp}"
     tc_sync_user_databases "$nome" "$pass" "$limit" "$exp_date"
 
     # Script de autodestrucción
@@ -289,7 +303,7 @@ tc_user_remove() {
     fi
 
     local idx=1
-    printf '%b%-4s %-20s %-12s %s%b\n' "$TC_YELLOW" "NUM" "USUARIO" "EXPIRA" "ESTADO" "$TC_NC"
+    printf '%b%-4s %-20s %-14s %s%b\n' "$TC_YELLOW" "NUM" "USUARIO" "EXPIRA" "ESTADO" "$TC_NC"
     tc_line
 
     for u in "${all_users[@]}"; do
@@ -304,7 +318,7 @@ tc_user_remove() {
             st="${TC_WHITE}OFFLINE${TC_NC}"
         fi
 
-        printf '%b[%d]%b > %b%-20s%b %-12s %b\n' \
+        printf '%b[%d]%b > %b%-20s%b %-14s %b\n' \
             "$TC_GREEN" "$idx" "$TC_NC" \
             "$TC_WHITE" "$u" "$TC_NC" \
             "$exp_d" "$st"
@@ -609,7 +623,7 @@ tc_user_info() {
     local total_u=${#all_users[@]}
     local total_on=0 total_exp=0
 
-    printf '%b%-16s %-16s %-12s %-10s %s%b\n' "$TC_CYAN" "USUARIO" "CONTRASEÑA" "EXPIRA" "CONEX/LIM" "ESTADO" "$TC_NC"
+    printf '%b%-16s %-16s %-14s %-10s %s%b\n' "$TC_CYAN" "USUARIO" "CONTRASEÑA" "EXPIRA" "CONEX/LIM" "ESTADO" "$TC_NC"
     tc_line
 
     for u in "${all_users[@]}"; do
@@ -629,7 +643,7 @@ tc_user_info() {
             st="${TC_WHITE}OFFLINE${TC_NC}"
         fi
 
-        printf '%b%-16s%b %b%-16s%b %-12s %-10s %b\n' \
+        printf '%b%-16s%b %b%-16s%b %-14s %-10s %b\n' \
             "$TC_WHITE" "$u" "$TC_NC" \
             "$TC_PALE_GOLD" "$p" "$TC_NC" \
             "$exp_d" "${conns}/${lim}" "$st"
