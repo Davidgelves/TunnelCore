@@ -17,11 +17,9 @@ tc_dropbear_is_running() {
 
 tc_dropbear_status_mark() {
     if tc_dropbear_is_running; then
-        printf '%b[ON]%b' "$TC_GREEN" "$TC_NC"
-    elif tc_dropbear_is_installed; then
-        printf '%b[OFF]%b' "$TC_RED" "$TC_NC"
+        printf '%bo%b' "$TC_GREEN" "$TC_NC"
     else
-        printf '%b[NO INSTALADO]%b' "$TC_YELLOW" "$TC_NC"
+        printf '%bx%b' "$TC_RED" "$TC_NC"
     fi
 }
 
