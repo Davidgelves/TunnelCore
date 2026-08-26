@@ -2835,7 +2835,6 @@ EOF
     if [[ "$link_tls" == "tls" ]]; then
     host_header="$domain"
     sni="${V2SEL_SNI:-You-HostName.com}"
-    add_host="local"
     fi
     enc_path="$(v2ray_urlencode_path "$path")"
     if [[ "$proto" == "vmess" ]]; then
