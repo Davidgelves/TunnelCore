@@ -179,6 +179,19 @@ tc_limiter_status() {
 # ═══════════════════════════════════════════════════════════════
 #  MENÚ PRINCIPAL
 # ═══════════════════════════════════════════════════════════════
+tc_header_label_cell() {
+    local text="$1" width="$2"
+    printf '%b%-*s%b' "$TC_CYAN" "$width" "$text" "$TC_NC"
+}
+
+tc_header_value_cell() {
+    local label="$1" value="$2" width="$3" visible pad
+    visible="${label}: ${value}"
+    pad=$(( width - ${#visible} ))
+    [[ "$pad" -lt 1 ]] && pad=1
+    printf '%b%s:%b %b%s%b%*s' "$TC_GREEN" "$label" "$TC_NC" "$TC_PALE_GOLD" "$value" "$TC_NC" "$pad" ""
+}
+
 tc_main_menu() {
     while true; do
         tc_clear
@@ -189,7 +202,7 @@ tc_main_menu() {
 
         os_short="$(tc_os_version)"
         # Truncar OS a ~18 chars
-        [[ "${#os_short}" -gt 18 ]] && os_short="${os_short:0:18}"
+        [[ "${#os_short}" -gt 16 ]] && os_short="${os_short:0:16}"
         ram_total="$(tc_ram_total)"
         ram_pct="$(tc_ram_percent)"
         cpu_cores="$(tc_cpu_cores)"
@@ -204,16 +217,18 @@ tc_main_menu() {
         tc_line
 
         # Fila 1: Sistema / RAM / CPU
-        printf '%b%-20s %-20s %-18s%b\n' "$TC_CYAN" \
-            "$(_t 'system')" "$(_t 'ram')" "$(_t 'processor')" "$TC_NC"
-        printf '%bOS:%b %b%-16s%b %b%s:%b %b%-13s%b %b%s:%b %b%-10s%b\n' \
-            "$TC_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${os_short}" "$TC_NC" \
-            "$TC_GREEN" "$(_t 'total')" "$TC_NC" "$TC_PALE_GOLD" "${ram_total}" "$TC_NC" \
-            "$TC_GREEN" "$(_t 'cores')" "$TC_NC" "$TC_PALE_GOLD" "${cpu_cores}" "$TC_NC"
-        printf '%b%s:%b %b%-14s%b %bRAM:%b %b%-11s%b %bCPU:%b %b%-10s%b\n' \
-            "$TC_GREEN" "$(_t 'time')" "$TC_NC" "$TC_PALE_GOLD" "${hora}" "$TC_NC" \
-            "$TC_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${ram_pct}" "$TC_NC" \
-            "$TC_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${cpu_pct}" "$TC_NC"
+        tc_header_label_cell "$(_t 'system')" 20
+        tc_header_label_cell "$(_t 'ram')" 20
+        tc_header_label_cell "$(_t 'processor')" 18
+        printf '\n'
+        tc_header_value_cell "OS" "${os_short}" 20
+        tc_header_value_cell "$(_t 'total')" "${ram_total}" 20
+        tc_header_value_cell "$(_t 'cores')" "${cpu_cores}" 18
+        printf '\n'
+        tc_header_value_cell "$(_t 'time')" "${hora}" 20
+        tc_header_value_cell "RAM" "${ram_pct}" 20
+        tc_header_value_cell "CPU" "${cpu_pct}" 18
+        printf '\n'
 
         tc_line
 
