@@ -623,7 +623,7 @@ tc_user_info() {
     local total_u=${#all_users[@]}
     local total_exp=0
 
-    printf '%b# %-16s %-16s %-14s %-12s%b\n' "$TC_CYAN" "USUARIO" "CONTRASEÑA" "EXPIRA" "CONEX/LIMITE" "$TC_NC"
+    printf '%b%-16s %-16s %-14s %-12s%b\n' "$TC_CYAN" "USUARIO" "CONTRASEÑA" "EXPIRA" "CONEX/LIMITE" "$TC_NC"
     tc_line
 
     for u in "${all_users[@]}"; do
@@ -644,7 +644,7 @@ tc_user_info() {
     done
 
     tc_line
-    printf '%b# Total Usuarios:%b %b%s%b  |  %bExpirados:%b %b%s%b\n' \
+    printf '%bTotal Usuarios:%b %b%s%b  |  %bExpirados:%b %b%s%b\n' \
         "$TC_YELLOW" "$TC_NC" "$TC_WHITE" "$total_u" "$TC_NC" \
         "$TC_YELLOW" "$TC_NC" "$TC_RED" "$total_exp" "$TC_NC"
     tc_line
