@@ -70,9 +70,9 @@ cat <<'BANNER'
    | | |_| | | | | | | |  __/ | |___| (_) | | |  __/
    |_|\__,_|_| |_|_| |_|\___|_|\_____\___/|_|  \___|
 BANNER
-printf '%b\n%b            TUNNELCORE%b\n\n' "${TC_NC}" "${TC_CYAN}" "${TC_NC}"
+printf '%b%b            TUNNELCORE%b\n\n' "${TC_NC}" "${TC_CYAN}" "${TC_NC}"
 printf '%b    Desarrollador: J DAVID AG%b\n\n' "${TC_CYAN}" "${TC_NC}"
-printf '%b   Escriba %b"menu"%b para ingresar%b\n\n\n\n' "${TC_CYAN}" "${TC_WHITE}" "${TC_CYAN}" "${TC_NC}"
+printf '%b   Escriba %b"menu"%b para ingresar%b\n\n' "${TC_CYAN}" "${TC_WHITE}" "${TC_CYAN}" "${TC_NC}"
 EOF
     chmod +x /etc/profile.d/tunnelcore.sh
     grep -qxF '. /etc/profile.d/tunnelcore.sh' /root/.bashrc 2>/dev/null || echo '. /etc/profile.d/tunnelcore.sh' >> /root/.bashrc
