@@ -141,16 +141,27 @@ v2ray_unit_name() {
     echo "v2ray@${port}"
     fi
 }
+v2ray_config_path_for_port() {
+    local port="$1" cfg
+    for cfg in "/root/TunnelCore/v2ray/conf/config.${port}.json" "/usr/local/etc/xray/config-${port}.json" "/usr/local/etc/xray/config.${port}.json"; do
+    [[ -s "$cfg" ]] && echo "$cfg" && return 0
+    done
+    echo "/root/TunnelCore/v2ray/conf/config.${port}.json"
+}
+v2ray_selected_unit() {
+    local port="$1" core="${2:-v2ray}"
+    [[ "$core" == "xray" ]] && echo "xray@${port}" || echo "v2ray@${port}"
+}
 v2ray_ensure_template_service() {
     mkdir -p /etc/systemd/system
     cat >/etc/systemd/system/v2ray@.service <<'EOF'
 [Unit]
-Description=TunnelCore V2Ray/Xray Service on port %i
+Description=v2ray Service
 After=network.target nss-lookup.target
 
 [Service]
 User=root
-ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config-%i.json
+ExecStart=/root/TunnelCore/v2ray/bin/v2ray/v2ray run -config /root/TunnelCore/v2ray/conf/config.%i.json
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=1048576
@@ -160,7 +171,7 @@ WantedBy=multi-user.target
 EOF
     cat >/etc/systemd/system/xray@.service <<'EOF'
 [Unit]
-Description=TunnelCore Xray Service on port %i
+Description=xray Service
 After=network.target nss-lookup.target
 
 [Service]
@@ -435,7 +446,7 @@ v2ray_install_wizard() {
     uuid="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null)"
     password="$(tc_rand_string 16 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
     method="aes-128-gcm"
-    mkdir -p /usr/local/etc/xray /etc/SSHPlus/v2ray /etc/SSHPlus /var/log/xray
+    mkdir -p /root/TunnelCore/v2ray/conf /root/TunnelCore/v2ray/log /usr/local/etc/xray /etc/SSHPlus/v2ray /etc/SSHPlus /var/log/xray
     if [[ "$tls" == "tls" ]]; then
     v2ray_ensure_local_cert "${sni:-local}" || { v2ray_install_line "Generando certificado TLS..........." 1; pausa_v2ray; return 1; }
     fi
@@ -446,7 +457,11 @@ v2ray_install_wizard() {
     pausa_v2ray
     return 1
     }
+    if [[ "$type" == "xray" ]]; then
     port_cfg="/usr/local/etc/xray/config-${port}.json"
+    else
+    port_cfg="/root/TunnelCore/v2ray/conf/config.${port}.json"
+    fi
     jq -n --slurpfile inbound "$inbound_json" '{
       "log": {
         "access": "/root/TunnelCore/v2ray/log/access.log",
@@ -532,10 +547,23 @@ v2ray_install_wizard() {
         "domainStrategy": "AsIs"
       }
     }' > "$port_cfg" || { rm -f "$inbound_json"; v2ray_install_line "Generando config.json..............." 1; pausa_v2ray; return 1; }
+    if [[ "$type" == "xray" ]]; then
     ln -sf "$port_cfg" "/usr/local/etc/xray/config.${port}.json" 2>/dev/null || cp -f "$port_cfg" "/usr/local/etc/xray/config.${port}.json" 2>/dev/null || true
+    cp -f "$port_cfg" "/root/TunnelCore/v2ray/conf/config.${port}.json" 2>/dev/null || true
+    else
+    cp -f "$port_cfg" "/usr/local/etc/xray/config-${port}.json" 2>/dev/null || true
+    ln -sf "/usr/local/etc/xray/config-${port}.json" "/usr/local/etc/xray/config.${port}.json" 2>/dev/null || true
+    fi
     rm -f "$inbound_json"
     test_log="/tmp/tunnelcore-xray-test.log"
-    if ! /usr/local/bin/xray run -test -config "$port_cfg" >"$test_log" 2>&1; then
+    if [[ "$type" == "xray" ]]; then
+    /usr/local/bin/xray run -test -config "$port_cfg" >"$test_log" 2>&1
+    test_rc=$?
+    else
+    /root/TunnelCore/v2ray/bin/v2ray/v2ray test -config "$port_cfg" >"$test_log" 2>&1
+    test_rc=$?
+    fi
+    if [[ "$test_rc" != "0" ]]; then
     v2ray_install_line "Validando config.json..............." 1
     sed -n '1,12p' "$test_log" 2>/dev/null
     pausa_v2ray
@@ -544,22 +572,23 @@ v2ray_install_wizard() {
     v2ray_install_line "systemctl daemon-reload............" 0
     v2ray_ensure_template_service
     systemctl disable --now xray >/dev/null 2>&1 || true
-    if systemctl start "v2ray@${port}" >/dev/null 2>&1; then
-    v2ray_install_line "systemctl start v2ray@${port}......." 0
+    unit="$(v2ray_selected_unit "$port" "$type")"
+    if systemctl start "$unit" >/dev/null 2>&1; then
+    v2ray_install_line "systemctl start ${unit}......." 0
     else
-    v2ray_install_line "systemctl start v2ray@${port}......." 1
+    v2ray_install_line "systemctl start ${unit}......." 1
     fi
-    if systemctl enable "v2ray@${port}" >/dev/null 2>&1; then
-    v2ray_install_line "systemctl enable v2ray@${port}......" 0
+    if systemctl enable "$unit" >/dev/null 2>&1; then
+    v2ray_install_line "systemctl enable ${unit}......" 0
     else
-    v2ray_install_line "systemctl enable v2ray@${port}......" 1
+    v2ray_install_line "systemctl enable ${unit}......" 1
     fi
     ext_port="$port"
     [[ "$tls" == "tls" ]] && ext_port="$port"
     domain="$host"
     [[ -z "$domain" ]] && domain="$(cat /etc/SSHPlus/IP 2>/dev/null || cat /etc/IP 2>/dev/null || v2ray_public_ip)"
     grep -v "^${port}|" /etc/SSHPlus/v2ray/configs.db 2>/dev/null > /etc/SSHPlus/v2ray/configs.db.tmp || true
-    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$port" "$name" "$proto" "$network" "$tls" "$domain" "$path" "$ext_port" "$sni" >> /etc/SSHPlus/v2ray/configs.db.tmp
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$port" "$name" "$proto" "$network" "$tls" "$domain" "$path" "$ext_port" "$sni" "$type" >> /etc/SSHPlus/v2ray/configs.db.tmp
     mv -f /etc/SSHPlus/v2ray/configs.db.tmp /etc/SSHPlus/v2ray/configs.db
     grep -q "$uuid" /etc/SSHPlus/RegV2ray 2>/dev/null || echo "  $uuid | $name | $(date '+%Y-%m-%d' -d '+365 days' 2>/dev/null || date '+%Y-%m-%d') " >> /etc/SSHPlus/RegV2ray
     v2ray_line
@@ -630,11 +659,11 @@ msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[0m'
     }
 
     v2ray_install_core_only() {
-    local arch asset xray_url dep
-    mkdir -p /usr/local/etc/xray /etc/v2ray /etc/SSHPlus/v2ray /etc/SSHPlus /var/log/xray
+    local arch xray_asset v2ray_asset xray_url v2ray_url dep
+    mkdir -p /root/TunnelCore/v2ray/bin/v2ray /root/TunnelCore/v2ray/bin/xray /root/TunnelCore/v2ray/conf /root/TunnelCore/v2ray/log /usr/local/etc/xray /etc/v2ray /etc/SSHPlus/v2ray /etc/SSHPlus /var/log/xray
     if command -v apt-get >/dev/null 2>&1; then
     apt-get update -y >/dev/null 2>&1 || true
-    apt-get install -y unzip curl wget ca-certificates jq uuid-runtime openssl lsof >/dev/null 2>&1 || true
+    apt-get install -y unzip curl wget ca-certificates jq uuid-runtime openssl lsof libstdc++6 libcurl4-openssl-dev >/dev/null 2>&1 || true
     fi
     for dep in unzip jq openssl; do
     if ! command -v "$dep" >/dev/null 2>&1; then
@@ -642,8 +671,8 @@ msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[0m'
     return 1
     fi
     done
-    if [[ -x /usr/local/bin/xray ]]; then
-    echo -e "\033[1;32mXray-core ya esta instalado.\033[0m"
+    if [[ -x /root/TunnelCore/v2ray/bin/v2ray/v2ray && -x /usr/local/bin/xray ]]; then
+    echo -e "\033[1;32mV2Ray/Xray-core ya estan instalados.\033[0m"
     v2ray_ensure_template_service
     return 0
     fi
@@ -653,14 +682,29 @@ msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[0m'
     fi
     arch="$(uname -m)"
     case "$arch" in
-    x86_64|amd64) asset="Xray-linux-64.zip" ;;
-    aarch64|arm64) asset="Xray-linux-arm64-v8a.zip" ;;
+    x86_64|amd64) v2ray_asset="v2ray-linux-64.zip"; xray_asset="Xray-linux-64.zip" ;;
+    aarch64|arm64) v2ray_asset="v2ray-linux-arm64-v8a.zip"; xray_asset="Xray-linux-arm64-v8a.zip" ;;
     *) echo -e "\033[1;31mArquitectura no soportada: $arch\033[0m"; return 1 ;;
     esac
-    xray_url="https://github.com/XTLS/Xray-core/releases/latest/download/${asset}"
+    v2ray_url="https://github.com/v2fly/v2ray-core/releases/latest/download/${v2ray_asset}"
+    xray_url="https://github.com/XTLS/Xray-core/releases/latest/download/${xray_asset}"
     cd /tmp || { echo -e "\033[1;31mNo se pudo acceder a /tmp\033[0m"; return 1; }
-    rm -rf xray-install xray.zip
+    rm -rf v2ray-install xray-install v2ray.zip xray.zip
+    mkdir -p v2ray-install
+    if [[ ! -x /root/TunnelCore/v2ray/bin/v2ray/v2ray ]]; then
+    if command -v curl >/dev/null 2>&1; then
+    curl -fL -o v2ray.zip "$v2ray_url"
+    else
+    wget -O v2ray.zip "$v2ray_url"
+    fi
+    [[ -s v2ray.zip ]] || { echo -e "\033[1;31mNo se pudo descargar V2Ray.\033[0m"; return 1; }
+    unzip -o v2ray.zip -d v2ray-install >/dev/null 2>&1 || { echo -e "\033[1;31mNo se pudo descomprimir V2Ray.\033[0m"; return 1; }
+    install -m 755 v2ray-install/v2ray /root/TunnelCore/v2ray/bin/v2ray/v2ray || { echo -e "\033[1;31mNo se pudo instalar V2Ray.\033[0m"; return 1; }
+    ln -sf /root/TunnelCore/v2ray/bin/v2ray/v2ray /usr/local/bin/v2ray 2>/dev/null || true
+    ln -sf /root/TunnelCore/v2ray/bin/v2ray/v2ray /usr/bin/v2ray 2>/dev/null || true
+    fi
     mkdir -p xray-install
+    if [[ ! -x /usr/local/bin/xray ]]; then
     if command -v curl >/dev/null 2>&1; then
     curl -fL -o xray.zip "$xray_url"
     else
@@ -669,7 +713,9 @@ msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[0m'
     [[ -s xray.zip ]] || { echo -e "\033[1;31mNo se pudo descargar Xray.\033[0m"; return 1; }
     unzip -o xray.zip -d xray-install >/dev/null 2>&1 || { echo -e "\033[1;31mNo se pudo descomprimir Xray.\033[0m"; return 1; }
     install -m 755 xray-install/xray /usr/local/bin/xray || { echo -e "\033[1;31mNo se pudo instalar /usr/local/bin/xray.\033[0m"; return 1; }
+    install -m 755 xray-install/xray /root/TunnelCore/v2ray/bin/xray/xray 2>/dev/null || true
     ln -sf /usr/local/bin/xray /usr/bin/xray 2>/dev/null || true
+    fi
     [[ -s /usr/local/etc/xray/config.json ]] || cat >/usr/local/etc/xray/config.json <<'EOF'
 {
   "log": { "loglevel": "warning" },
@@ -681,7 +727,7 @@ msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[0m'
 EOF
     ln -sf /usr/local/etc/xray/config.json /etc/v2ray/config.json 2>/dev/null || true
     v2ray_ensure_template_service
-    echo -e "\033[1;32mXray-core instalado correctamente.\033[0m"
+    echo -e "\033[1;32mV2Ray/Xray-core instalados correctamente.\033[0m"
     return 0
     }
 
@@ -2597,7 +2643,7 @@ EOF
     }
 
     v2ray_select_config() {
-    local idx=1 line port name proto network tls domain path ext_port sni choice
+    local idx=1 line port name proto network tls domain path ext_port sni core_type choice
     V2SEL_PORT=""
     V2SEL_NAME=""
     V2SEL_PROTO=""
@@ -2607,10 +2653,12 @@ EOF
     V2SEL_PATH=""
     V2SEL_EXT_PORT=""
     V2SEL_SNI=""
+    V2SEL_CORE="v2ray"
     [[ ! -s /etc/SSHPlus/v2ray/configs.db ]] && return 1
     v2ray_title "SELECTOR DE CONFIGURACION"
-    while IFS='|' read -r port name proto network tls domain path ext_port sni; do
+    while IFS='|' read -r port name proto network tls domain path ext_port sni core_type; do
     [[ -z "$port" ]] && continue
+    [[ -z "$core_type" ]] && core_type="v2ray"
     printf "\033[1;32m[%s]\033[0m > \033[1;37m%s %s %s %s %s\033[0m\n" "$idx" "$name" "$proto" "$network" "$tls" "$port"
     eval "V2CFG_${idx}_PORT=\"\$port\""
     eval "V2CFG_${idx}_NAME=\"\$name\""
@@ -2621,6 +2669,7 @@ EOF
     eval "V2CFG_${idx}_PATH=\"\$path\""
     eval "V2CFG_${idx}_EXT_PORT=\"\$ext_port\""
     eval "V2CFG_${idx}_SNI=\"\$sni\""
+    eval "V2CFG_${idx}_CORE=\"\$core_type\""
     idx=$((idx + 1))
     done < /etc/SSHPlus/v2ray/configs.db
     v2ray_line
@@ -2639,6 +2688,7 @@ EOF
     eval "V2SEL_PATH=\"\$V2CFG_${choice}_PATH\""
     eval "V2SEL_EXT_PORT=\"\$V2CFG_${choice}_EXT_PORT\""
     eval "V2SEL_SNI=\"\$V2CFG_${choice}_SNI\""
+    eval "V2SEL_CORE=\"\$V2CFG_${choice}_CORE\""
     return 0
     }
 
@@ -2648,12 +2698,11 @@ EOF
     v2ray_select_config || { fun_v2raymanager; return; }
     clear
     v2ray_title "conf: config.${V2SEL_PORT}.json"
-    cfg_file="/usr/local/etc/xray/config-${V2SEL_PORT}.json"
-    [[ ! -s "$cfg_file" && -s "/usr/local/etc/xray/config.${V2SEL_PORT}.json" ]] && cfg_file="/usr/local/etc/xray/config.${V2SEL_PORT}.json"
+    cfg_file="$(v2ray_config_path_for_port "$V2SEL_PORT")"
     if [[ -s "$cfg_file" ]]; then
     jq . "$cfg_file" 2>/dev/null || cat "$cfg_file"
     else
-    echo -e "\033[1;31mNo existe /usr/local/etc/xray/config-${V2SEL_PORT}.json\033[0m"
+    echo -e "\033[1;31mNo existe configuracion para el puerto ${V2SEL_PORT}\033[0m"
     fi
     v2ray_line
     pausa_v2ray
@@ -2664,11 +2713,15 @@ EOF
     local cfg_file
     clear
     v2ray_select_config || { fun_v2raymanager; return; }
-    cfg_file="/usr/local/etc/xray/config-${V2SEL_PORT}.json"
-    [[ ! -s "$cfg_file" && -s "/usr/local/etc/xray/config.${V2SEL_PORT}.json" ]] && cfg_file="/usr/local/etc/xray/config.${V2SEL_PORT}.json"
+    cfg_file="$(v2ray_config_path_for_port "$V2SEL_PORT")"
     ${EDITOR:-nano} "$cfg_file"
-    if /usr/local/bin/xray run -test -config "$cfg_file" >/tmp/tunnelcore-xray-test.log 2>&1; then
-    systemctl restart "v2ray@${V2SEL_PORT}" >/dev/null 2>&1
+    if [[ "$V2SEL_CORE" == "xray" ]]; then
+    /usr/local/bin/xray run -test -config "$cfg_file" >/tmp/tunnelcore-xray-test.log 2>&1
+    else
+    /root/TunnelCore/v2ray/bin/v2ray/v2ray test -config "$cfg_file" >/tmp/tunnelcore-xray-test.log 2>&1
+    fi
+    if [[ "$?" = "0" ]]; then
+    systemctl restart "$(v2ray_selected_unit "$V2SEL_PORT" "$V2SEL_CORE")" >/dev/null 2>&1
     echo -e "\033[1;32mConfiguracion validada y servicio reiniciado.\033[0m"
     else
     echo -e "\033[1;31mLa configuracion no paso la validacion de Xray.\033[0m"
@@ -2684,7 +2737,8 @@ EOF
     echo -ne "\033[1;31mEliminar ${V2SEL_NAME} puerto ${V2SEL_PORT}? [S/N]: \033[0m"
     read ok
     [[ ! "$ok" =~ ^[sS]$ ]] && fun_v2raymanager && return
-    systemctl disable --now "v2ray@${V2SEL_PORT}" >/dev/null 2>&1 || true
+    systemctl disable --now "v2ray@${V2SEL_PORT}" "xray@${V2SEL_PORT}" >/dev/null 2>&1 || true
+    rm -f "/root/TunnelCore/v2ray/conf/config.${V2SEL_PORT}.json"
     rm -f "/usr/local/etc/xray/config-${V2SEL_PORT}.json"
     rm -f "/usr/local/etc/xray/config.${V2SEL_PORT}.json"
     grep -v "^${V2SEL_PORT}|" /etc/SSHPlus/v2ray/configs.db > /etc/SSHPlus/v2ray/configs.db.tmp 2>/dev/null || true
@@ -2785,7 +2839,7 @@ EOF
     local cfg nick uuid days valid exp tmp proto network link_tls domain path ext_port add_host host_header sni allow_insecure enc_path uri vmess_json vmess_b64
     clear
     v2ray_select_config || { menu_usuarios_v2ray; return; }
-    cfg="/usr/local/etc/xray/config-${V2SEL_PORT}.json"
+    cfg="$(v2ray_config_path_for_port "$V2SEL_PORT")"
     if [[ ! -s "$cfg" ]]; then
     echo -e "\033[1;31mNo existe la configuracion del puerto ${V2SEL_PORT}.\033[0m"
     pausa_v2ray
@@ -2853,11 +2907,22 @@ EOF
     menu_usuarios_v2ray
     return
     }
-    if /usr/local/bin/xray run -test -config "$cfg" >/tmp/tunnelcore-xray-test.log 2>&1; then
-    systemctl restart "v2ray@${V2SEL_PORT}" >/dev/null 2>&1
-    systemctl enable "v2ray@${V2SEL_PORT}" >/dev/null 2>&1
+    if [[ "$V2SEL_CORE" == "xray" ]]; then
+    /usr/local/bin/xray run -test -config "$cfg" >/tmp/tunnelcore-xray-test.log 2>&1
     else
-    echo -e "\033[1;31mEl JSON no paso la validacion de Xray.\033[0m"
+    /root/TunnelCore/v2ray/bin/v2ray/v2ray test -config "$cfg" >/tmp/tunnelcore-xray-test.log 2>&1
+    fi
+    if [[ "$?" = "0" ]]; then
+    if [[ "$V2SEL_CORE" == "xray" ]]; then
+    cp -f "$cfg" "/root/TunnelCore/v2ray/conf/config.${V2SEL_PORT}.json" 2>/dev/null || true
+    else
+    cp -f "$cfg" "/usr/local/etc/xray/config-${V2SEL_PORT}.json" 2>/dev/null || true
+    ln -sf "/usr/local/etc/xray/config-${V2SEL_PORT}.json" "/usr/local/etc/xray/config.${V2SEL_PORT}.json" 2>/dev/null || true
+    fi
+    systemctl restart "$(v2ray_selected_unit "$V2SEL_PORT" "$V2SEL_CORE")" >/dev/null 2>&1
+    systemctl enable "$(v2ray_selected_unit "$V2SEL_PORT" "$V2SEL_CORE")" >/dev/null 2>&1
+    else
+    echo -e "\033[1;31mEl JSON no paso la validacion de ${V2SEL_CORE}.\033[0m"
     sed -n '1,12p' /tmp/tunnelcore-xray-test.log 2>/dev/null
     pausa_v2ray
     menu_usuarios_v2ray
