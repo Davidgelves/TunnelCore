@@ -167,7 +167,7 @@ tc_system_time() {
 # ── Conteo de usuarios ────────────────────────────────────────
 tc_total_users() {
     if [[ -f "$TC_USERS_DB" ]]; then
-        wc -l < "$TC_USERS_DB" 2>/dev/null | tr -d ' '
+        awk -F'|' 'NF && $1 ~ /[[:alnum:]_:-]/ {count++} END {print count+0}' "$TC_USERS_DB" 2>/dev/null
     else
         # Contar usuarios del sistema con UID >= 1000 y shell válido
         awk -F: '$3 >= 1000 && $7 !~ /nologin|false/ {count++} END {print count+0}' /etc/passwd 2>/dev/null
@@ -175,12 +175,21 @@ tc_total_users() {
 }
 
 tc_connected_users() {
-    # Contar sesiones SSH activas (excluyendo la propia)
-    local count=0
-    if command -v ss >/dev/null 2>&1; then
-        count="$(ss -tnp 2>/dev/null | grep -c ':22[[:space:]].*ESTAB')"
-    elif command -v netstat >/dev/null 2>&1; then
-        count="$(netstat -tnp 2>/dev/null | grep -c ':22.*ESTABLISHED')"
+    local count=0 user conns
+    if [[ -f "$TC_USERS_DB" ]]; then
+        while IFS='|' read -r user _expiry _limit _created _rest; do
+            user="$(echo "$user" | xargs)"
+            [[ -z "$user" ]] && continue
+            if declare -f tc_user_active_conns >/dev/null 2>&1; then
+                conns="$(tc_user_active_conns "$user" 2>/dev/null)"
+            else
+                conns="$(ps -u "$user" 2>/dev/null | awk 'NR>1 {count++} END {print count+0}')"
+            fi
+            [[ "$conns" =~ ^[0-9]+$ ]] || conns=0
+            (( conns > 0 )) && (( count++ ))
+        done < "$TC_USERS_DB"
+    else
+        count="$(who 2>/dev/null | awk '{print $1}' | sort -u | wc -l | tr -d ' ')"
     fi
     echo "${count:-0}"
 }
@@ -189,11 +198,15 @@ tc_expired_users() {
     local count=0 today_sec
     today_sec="$(date +%s)"
     if [[ -f "$TC_USERS_DB" ]]; then
-        while IFS='|' read -r _user _pass expiry _rest; do
+        while IFS='|' read -r _user expiry _limit _created _rest; do
             expiry="$(echo "$expiry" | xargs)"
             [[ -z "$expiry" ]] && continue
             local exp_sec
-            exp_sec="$(date +%s --date="$expiry" 2>/dev/null)" || continue
+            if [[ "$expiry" =~ ^test:([0-9]+):[0-9]+$ ]]; then
+                exp_sec="${BASH_REMATCH[1]}"
+            else
+                exp_sec="$(date +%s --date="$expiry" 2>/dev/null)" || continue
+            fi
             (( today_sec > exp_sec )) && (( count++ ))
         done < "$TC_USERS_DB"
     fi

@@ -204,16 +204,16 @@ tc_main_menu() {
         tc_line
 
         # Fila 1: Sistema / RAM / CPU
-        printf '%b%-20s %-20s %-18s%b\n' "$TC_WHITE" \
+        printf '%b%-20s %-20s %-18s%b\n' "$TC_CYAN" \
             "$(_t 'system')" "$(_t 'ram')" "$(_t 'processor')" "$TC_NC"
-        printf '%b%-20s%b %b%-20s%b %b%-18s%b\n' \
-            "$TC_PALE_GOLD" "OS: ${os_short}" "$TC_NC" \
-            "$TC_PALE_GOLD" "$(_t 'total'): ${ram_total}" "$TC_NC" \
-            "$TC_PALE_GOLD" "$(_t 'cores'): ${cpu_cores}" "$TC_NC"
-        printf '%b%-20s%b %b%-20s%b %b%-18s%b\n' \
-            "$TC_PALE_GOLD" "$(_t 'time'): ${hora}" "$TC_NC" \
-            "$TC_PALE_GOLD" "RAM: ${ram_pct}" "$TC_NC" \
-            "$TC_PALE_GOLD" "CPU: ${cpu_pct}" "$TC_NC"
+        printf '%bOS:%b %b%-16s%b %b%s:%b %b%-13s%b %b%s:%b %b%-10s%b\n' \
+            "$TC_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${os_short}" "$TC_NC" \
+            "$TC_GREEN" "$(_t 'total')" "$TC_NC" "$TC_PALE_GOLD" "${ram_total}" "$TC_NC" \
+            "$TC_GREEN" "$(_t 'cores')" "$TC_NC" "$TC_PALE_GOLD" "${cpu_cores}" "$TC_NC"
+        printf '%b%s:%b %b%-14s%b %bRAM:%b %b%-11s%b %bCPU:%b %b%-10s%b\n' \
+            "$TC_GREEN" "$(_t 'time')" "$TC_NC" "$TC_PALE_GOLD" "${hora}" "$TC_NC" \
+            "$TC_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${ram_pct}" "$TC_NC" \
+            "$TC_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${cpu_pct}" "$TC_NC"
 
         tc_line
 
@@ -229,16 +229,18 @@ tc_main_menu() {
 
         # ── Opciones ──────────────────────────────────────────
         tc_opt "1"  "ADMINISTRAR CUENTAS (SSH/HYSTERIA)"
+        tc_opt "2"  "MONITOR DE ONLINE"
         tc_line
-        tc_opt "2"  "$(_t 'menu_protocols')"
-        tc_opt "3"  "$(_t 'menu_banner')"
-        tc_opt "4"  "$(_t 'menu_limiter')" "  $(tc_limiter_status)"
-        tc_opt "5"  "$(_t 'menu_checkusers')"
-        tc_opt "6"  "$(_t 'menu_network')"
-        tc_opt "7"  "$(_t 'menu_vps')"
-        tc_opt "8"  "$(_t 'menu_settings')"
-        tc_opt "9"  "$(_t 'menu_extras')"
-        tc_opt "10" "$(_t 'menu_reboot')"
+        tc_opt "3"  "$(_t 'menu_protocols')"
+        tc_opt "4"  "$(_t 'menu_banner')"
+        tc_opt "5"  "$(_t 'menu_limiter')" "  $(tc_limiter_status)"
+        tc_opt "6"  "$(_t 'menu_checkusers')"
+        tc_opt "7"  "$(_t 'menu_network')"
+        tc_opt "8"  "$(_t 'menu_vps')"
+        tc_opt "9"  "$(_t 'menu_settings')"
+        tc_opt "10" "$(_t 'menu_extras')"
+        tc_opt "11" "$(_t 'menu_reboot')"
+        tc_opt "12" "SALIR DE LA SCRIPT"
         tc_line
 
         tc_prompt
@@ -246,16 +248,17 @@ tc_main_menu() {
 
         case "${opcion}" in
             1|01) tc_module_users ;;
-            2|02) tc_module_protocols ;;
-            3|03) tc_module_banner ;;
-            4|04) tc_module_limiter ;;
-            5|05) tc_module_checkusers ;;
-            6|06) tc_module_network ;;
-            7|07) tc_module_vps ;;
-            8|08) tc_module_settings ;;
-            9|09) tc_module_extras ;;
-            10)   tc_reboot_vps ;;
-            0|00|q|Q)
+            2|02) tc_user_monitor ;;
+            3|03) tc_module_protocols ;;
+            4|04) tc_module_banner ;;
+            5|05) tc_module_limiter ;;
+            6|06) tc_module_checkusers ;;
+            7|07) tc_module_network ;;
+            8|08) tc_module_vps ;;
+            9|09) tc_module_settings ;;
+            10)   tc_module_extras ;;
+            11)   tc_reboot_vps ;;
+            12|0|00|q|Q)
                 tc_clear
                 tc_msg_ok "$(_t 'goodbye')"
                 exit 0
