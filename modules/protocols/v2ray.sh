@@ -177,10 +177,19 @@ EOF
 }
 v2ray_ports_configured() {
     local cfg
+    {
+    awk -F'|' '{if($1 ~ /^[0-9]+$/) print $1}' /etc/SSHPlus/v2ray/configs.db 2>/dev/null
     for cfg in /usr/local/etc/xray/config-*.json; do
     [[ -f "$cfg" ]] || continue
     basename "$cfg" | sed -E 's/^config-([0-9]+)\.json$/\1/'
-    done | sort -n | uniq | xargs 2>/dev/null
+    done
+    for cfg in /usr/local/etc/xray/config.*.json /root/TunnelCore/v2ray/conf/config.*.json; do
+    [[ -f "$cfg" ]] || continue
+    basename "$cfg" | sed -E 's/^config\.([0-9]+)\.json$/\1/'
+    done
+    systemctl list-units 'v2ray@*.service' 'xray@*.service' --all --no-legend 2>/dev/null | awk '{print $1}' | sed -E 's/^(v2ray|xray)@([0-9]+)\.service$/\2/'
+    systemctl list-unit-files 'v2ray@*.service' 'xray@*.service' --no-legend 2>/dev/null | awk '{print $1}' | sed -E 's/^(v2ray|xray)@([0-9]+)\.service$/\2/'
+    } | sed '/^[[:space:]]*$/d' | sort -n | uniq
 }
 tc_xray_status_mark() {
     if v2ray_service_running; then
@@ -523,6 +532,7 @@ v2ray_install_wizard() {
         "domainStrategy": "AsIs"
       }
     }' > "$port_cfg" || { rm -f "$inbound_json"; v2ray_install_line "Generando config.json..............." 1; pausa_v2ray; return 1; }
+    ln -sf "$port_cfg" "/usr/local/etc/xray/config.${port}.json" 2>/dev/null || cp -f "$port_cfg" "/usr/local/etc/xray/config.${port}.json" 2>/dev/null || true
     rm -f "$inbound_json"
     test_log="/tmp/tunnelcore-xray-test.log"
     if ! /usr/local/bin/xray run -test -config "$port_cfg" >"$test_log" 2>&1; then
@@ -2621,12 +2631,15 @@ EOF
     }
 
     v2ray_show_port_json() {
+    local cfg_file
     clear
     v2ray_select_config || { fun_v2raymanager; return; }
     clear
     v2ray_title "conf: config.${V2SEL_PORT}.json"
-    if [[ -s "/usr/local/etc/xray/config-${V2SEL_PORT}.json" ]]; then
-    jq . "/usr/local/etc/xray/config-${V2SEL_PORT}.json" 2>/dev/null || cat "/usr/local/etc/xray/config-${V2SEL_PORT}.json"
+    cfg_file="/usr/local/etc/xray/config-${V2SEL_PORT}.json"
+    [[ ! -s "$cfg_file" && -s "/usr/local/etc/xray/config.${V2SEL_PORT}.json" ]] && cfg_file="/usr/local/etc/xray/config.${V2SEL_PORT}.json"
+    if [[ -s "$cfg_file" ]]; then
+    jq . "$cfg_file" 2>/dev/null || cat "$cfg_file"
     else
     echo -e "\033[1;31mNo existe /usr/local/etc/xray/config-${V2SEL_PORT}.json\033[0m"
     fi
@@ -2636,10 +2649,13 @@ EOF
     }
 
     v2ray_edit_port_json() {
+    local cfg_file
     clear
     v2ray_select_config || { fun_v2raymanager; return; }
-    ${EDITOR:-nano} "/usr/local/etc/xray/config-${V2SEL_PORT}.json"
-    if /usr/local/bin/xray run -test -config "/usr/local/etc/xray/config-${V2SEL_PORT}.json" >/tmp/tunnelcore-xray-test.log 2>&1; then
+    cfg_file="/usr/local/etc/xray/config-${V2SEL_PORT}.json"
+    [[ ! -s "$cfg_file" && -s "/usr/local/etc/xray/config.${V2SEL_PORT}.json" ]] && cfg_file="/usr/local/etc/xray/config.${V2SEL_PORT}.json"
+    ${EDITOR:-nano} "$cfg_file"
+    if /usr/local/bin/xray run -test -config "$cfg_file" >/tmp/tunnelcore-xray-test.log 2>&1; then
     systemctl restart "v2ray@${V2SEL_PORT}" >/dev/null 2>&1
     echo -e "\033[1;32mConfiguracion validada y servicio reiniciado.\033[0m"
     else
@@ -2658,6 +2674,7 @@ EOF
     [[ ! "$ok" =~ ^[sS]$ ]] && fun_v2raymanager && return
     systemctl disable --now "v2ray@${V2SEL_PORT}" >/dev/null 2>&1 || true
     rm -f "/usr/local/etc/xray/config-${V2SEL_PORT}.json"
+    rm -f "/usr/local/etc/xray/config.${V2SEL_PORT}.json"
     grep -v "^${V2SEL_PORT}|" /etc/SSHPlus/v2ray/configs.db > /etc/SSHPlus/v2ray/configs.db.tmp 2>/dev/null || true
     mv -f /etc/SSHPlus/v2ray/configs.db.tmp /etc/SSHPlus/v2ray/configs.db
     echo -e "\033[1;32mProtocolo eliminado.\033[0m"
@@ -2669,7 +2686,19 @@ EOF
     local port owner
     clear
     v2ray_title "ESTADO DEL SERVICIO"
+    if [[ -z "$(v2ray_ports_configured)" ]]; then
+    echo -e "\033[1;31mNo se detectaron servicios/configuraciones V2Ray por puerto.\033[0m"
+    echo -e "\033[1;37mRevise si existen archivos config-PORT.json o servicios v2ray@PORT.\033[0m"
+    v2ray_line
+    pausa_v2ray
+    fun_v2raymanager
+    return
+    fi
     for port in $(v2ray_ports_configured); do
+    v2ray_line
+    echo -e "\033[1;33mEstado del servicio v2ray@${port}\033[0m"
+    v2ray_line
+    systemctl status "v2ray@${port}" --no-pager 2>/dev/null || systemctl status "xray@${port}" --no-pager 2>/dev/null || true
     if systemctl is-active "v2ray@${port}" >/dev/null 2>&1; then
     printf "\033[1;32mv2ray@%s ACTIVO\033[0m\n" "$port"
     else
