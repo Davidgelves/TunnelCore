@@ -2678,6 +2678,7 @@ EOF
     owner="$(v2ray_port_owner "$port")"
     [[ -n "$owner" ]] && printf "\033[1;33mPuerto %s:\033[0m \033[1;37m%s\033[0m\n" "$port" "$owner"
     journalctl -u "v2ray@${port}" -n 3 --no-pager 2>/dev/null | sed 's/^/  /'
+    journalctl -u "v2ray@${port}" -n 20 --no-pager 2>/dev/null | grep -q 'TLS handshake error.*EOF' && echo -e "\033[1;33mAviso: llega trafico al puerto, pero el cliente corta durante TLS. Revise SNI/Host o active Allow Insecure en la app.\033[0m"
     done
     v2ray_line
     pausa_v2ray
@@ -2740,7 +2741,7 @@ EOF
     }
 
     v2ray_add_user_port_config() {
-    local cfg nick uuid days valid exp tmp proto network link_tls domain path ext_port add_host host_header sni enc_path uri vmess_json vmess_b64
+    local cfg nick uuid days valid exp tmp proto network link_tls domain path ext_port add_host host_header sni allow_insecure enc_path uri vmess_json vmess_b64
     clear
     v2ray_select_config || { menu_usuarios_v2ray; return; }
     cfg="/usr/local/etc/xray/config-${V2SEL_PORT}.json"
@@ -2836,12 +2837,18 @@ EOF
     host_header="$domain"
     sni="${V2SEL_SNI:-You-HostName.com}"
     fi
+    allow_insecure="false"
+    if [[ "$link_tls" == "tls" ]]; then
+    echo -ne "${SSHPlus_DARK_GREEN}Permitir certificado local/no verificado? [s/N]:${SCOLOR} "
+    read insecure_opt
+    [[ "$insecure_opt" =~ ^[sS]$ ]] && allow_insecure="true"
+    fi
     enc_path="$(v2ray_urlencode_path "$path")"
     if [[ "$proto" == "vmess" ]]; then
     local tls_value=""
     [[ "$link_tls" == "tls" ]] && tls_value="tls"
     vmess_json=$(cat <<EOF
-{"v":"2","ps":"${nick}","add":"${add_host}","port":"${ext_port}","id":"${uuid}","aid":"0","scy":"auto","net":"${network}","type":"","host":"${host_header}","path":"${path}","tls":"${tls_value}","sni":"${sni}","alpn":"","fp":""}
+{"v":"2","ps":"${nick}","add":"${add_host}","port":"${ext_port}","id":"${uuid}","aid":"0","scy":"auto","net":"${network}","type":"","host":"${host_header}","path":"${path}","tls":"${tls_value}","sni":"${sni}","alpn":"","fp":"","allowInsecure":"${allow_insecure}"}
 EOF
 )
     vmess_b64="$(printf '%s' "$vmess_json" | base64 -w 0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
@@ -2868,7 +2875,7 @@ EOF
     if [[ "$view_json" =~ ^[sS]$ ]]; then
     echo ""
     if [[ "$proto" == "vmess" ]]; then
-    jq -n --arg address "$add_host" --arg port "$ext_port" --arg id "$uuid" --arg network "$network" --arg security "$link_tls" --arg path "$path" --arg host "$host_header" --arg sni "${sni:-You-HostName.com}" '{
+    jq -n --arg address "$add_host" --arg port "$ext_port" --arg id "$uuid" --arg network "$network" --arg security "$link_tls" --arg path "$path" --arg host "$host_header" --arg sni "${sni:-You-HostName.com}" --argjson allowInsecure "$allow_insecure" '{
       log: {
         loglevel: "debug"
       },
@@ -2911,7 +2918,7 @@ EOF
             },
             security: (if $security == "tls" then "tls" else "none" end),
             tlsSettings: {
-              allowInsecure: false,
+              allowInsecure: $allowInsecure,
               fingerprint: "chrome",
               serverName: $sni
             }
@@ -2920,7 +2927,7 @@ EOF
       ]
     }'
     else
-    jq -n --arg address "$add_host" --arg port "$ext_port" --arg id "$uuid" --arg network "$network" --arg security "$link_tls" --arg path "$path" --arg host "$host_header" --arg sni "${sni:-You-HostName.com}" '{
+    jq -n --arg address "$add_host" --arg port "$ext_port" --arg id "$uuid" --arg network "$network" --arg security "$link_tls" --arg path "$path" --arg host "$host_header" --arg sni "${sni:-You-HostName.com}" --argjson allowInsecure "$allow_insecure" '{
       log: {
         loglevel: "debug"
       },
@@ -2962,7 +2969,7 @@ EOF
             },
             security: (if $security == "tls" then "tls" else "none" end),
             tlsSettings: {
-              allowInsecure: false,
+              allowInsecure: $allowInsecure,
               fingerprint: "chrome",
               serverName: $sni
             }
