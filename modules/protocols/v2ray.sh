@@ -187,8 +187,8 @@ v2ray_ports_configured() {
     [[ -f "$cfg" ]] || continue
     basename "$cfg" | sed -E 's/^config\.([0-9]+)\.json$/\1/'
     done
-    systemctl list-units 'v2ray@*.service' 'xray@*.service' --all --no-legend 2>/dev/null | awk '{print $1}' | sed -E 's/^(v2ray|xray)@([0-9]+)\.service$/\2/'
-    systemctl list-unit-files 'v2ray@*.service' 'xray@*.service' --no-legend 2>/dev/null | awk '{print $1}' | sed -E 's/^(v2ray|xray)@([0-9]+)\.service$/\2/'
+    systemctl list-units 'v2ray@*.service' 'xray@*.service' --all --no-legend 2>/dev/null | awk '{print $1}' | grep -E '^(v2ray|xray)@[0-9]+\.service$' | sed -E 's/^(v2ray|xray)@([0-9]+)\.service$/\2/'
+    systemctl list-unit-files 'v2ray@*.service' 'xray@*.service' --no-legend 2>/dev/null | awk '{print $1}' | grep -E '^(v2ray|xray)@[0-9]+\.service$' | sed -E 's/^(v2ray|xray)@([0-9]+)\.service$/\2/'
     } | sed '/^[[:space:]]*$/d' | sort -n | uniq
 }
 tc_xray_status_mark() {
