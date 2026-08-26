@@ -229,7 +229,7 @@ tc_main_menu() {
 
         # ── Opciones ──────────────────────────────────────────
         tc_opt "1"  "ADMINISTRAR CUENTAS (SSH/HYSTERIA)"
-        tc_opt "2"  "MONITOR DE ONLINE"
+        tc_opt "2"  "MONITOR ONLINE"
         tc_line
         tc_opt "3"  "$(_t 'menu_protocols')"
         tc_opt "4"  "$(_t 'menu_banner')"
