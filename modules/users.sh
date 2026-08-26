@@ -304,7 +304,7 @@ tc_user_remove() {
             st="${TC_WHITE}OFFLINE${TC_NC}"
         fi
 
-        printf '%b[%02d]%b > %b%-20s%b %-12s %b\n' \
+        printf '%b[%d]%b > %b%-20s%b %-12s %b\n' \
             "$TC_RED" "$idx" "$TC_NC" \
             "$TC_WHITE" "$u" "$TC_NC" \
             "$exp_d" "$st"
@@ -414,7 +414,7 @@ tc_user_change_date() {
     for u in "${all_users[@]}"; do
         local exp_d
         exp_d="$(tc_get_user_exp_days "$u")"
-        printf '%b[%02d]%b > %b%-22s%b %s\n' \
+        printf '%b[%d]%b > %b%-22s%b %s\n' \
             "$TC_GREEN" "$idx" "$TC_NC" \
             "$TC_WHITE" "$u" "$TC_NC" \
             "$exp_d"
@@ -483,7 +483,7 @@ tc_user_change_limit() {
     for u in "${all_users[@]}"; do
         local cur_lim
         cur_lim="$(tc_get_user_limit "$u")"
-        printf '%b[%02d]%b > %b%-25s%b %s\n' \
+        printf '%b[%d]%b > %b%-25s%b %s\n' \
             "$TC_GREEN" "$idx" "$TC_NC" \
             "$TC_WHITE" "$u" "$TC_NC" \
             "$cur_lim"
@@ -549,7 +549,7 @@ tc_user_change_pass() {
     for u in "${all_users[@]}"; do
         local cur_p
         cur_p="$(tc_get_user_password "$u")"
-        printf '%b[%02d]%b > %b%-25s%b %s\n' \
+        printf '%b[%d]%b > %b%-25s%b %s\n' \
             "$TC_GREEN" "$idx" "$TC_NC" \
             "$TC_WHITE" "$u" "$TC_NC" \
             "$cur_p"
@@ -698,23 +698,23 @@ tc_users_menu() {
         tc_clear
         tc_title "ADMINISTRAR USUARIOS"
 
-        printf '  %b[01]%b > %b%-18s%b   %b[06]%b > %b%-18s%b\n' \
+        printf '  %b[1]%b > %b%-18s%b   %b[6]%b > %b%-18s%b\n' \
             "$TC_GREEN" "$TC_NC" "$TC_WHITE" "CREAR USUARIO" "$TC_NC" \
             "$TC_GREEN" "$TC_NC" "$TC_WHITE" "CAMBIAR LIMITE" "$TC_NC"
 
-        printf '  %b[02]%b > %b%-18s%b   %b[07]%b > %b%-18s%b\n' \
+        printf '  %b[2]%b > %b%-18s%b   %b[7]%b > %b%-18s%b\n' \
             "$TC_GREEN" "$TC_NC" "$TC_WHITE" "CREAR PRUEBA" "$TC_NC" \
             "$TC_GREEN" "$TC_NC" "$TC_WHITE" "CAMBIAR CLAVE" "$TC_NC"
 
-        printf '  %b[03]%b > %b%-18s%b   %b[08]%b > %b%-18s%b\n' \
+        printf '  %b[3]%b > %b%-18s%b   %b[8]%b > %b%-18s%b\n' \
             "$TC_GREEN" "$TC_NC" "$TC_WHITE" "ELIMINAR USUARIO" "$TC_NC" \
             "$TC_GREEN" "$TC_NC" "$TC_WHITE" "INFORME DE USUARIOS" "$TC_NC"
 
-        printf '  %b[04]%b > %b%-18s%b   %b[09]%b > %b%-18s%b\n' \
+        printf '  %b[4]%b > %b%-18s%b   %b[9]%b > %b%-18s%b\n' \
             "$TC_GREEN" "$TC_NC" "$TC_WHITE" "MONITOR ONLINE" "$TC_NC" \
             "$TC_GREEN" "$TC_NC" "$TC_WHITE" "ELIMINAR CADUCADOS" "$TC_NC"
 
-        printf '  %b[05]%b > %b%-18s%b   %b[00]%b > %b%-18s%b\n' \
+        printf '  %b[5]%b > %b%-18s%b   %b[0]%b > %b%-18s%b\n' \
             "$TC_GREEN" "$TC_NC" "$TC_WHITE" "CAMBIAR FECHA" "$TC_NC" \
             "$TC_GREEN" "$TC_NC" "$TC_WHITE" "VOLVER" "$TC_NC"
 

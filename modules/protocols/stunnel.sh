@@ -170,7 +170,7 @@ tc_stunnel_del_port() {
     printf '%b%-4s %s%b\n' "$TC_YELLOW" "NUM" "PUERTO SSL" "$TC_NC"
     tc_line
     for p in "${ports[@]}"; do
-        printf '%b[%02d]%b > %bPuerto %s%b\n' "$TC_RED" "$idx" "$TC_NC" "$TC_WHITE" "$p" "$TC_NC"
+        printf '%b[%d]%b > %bPuerto %s%b\n' "$TC_RED" "$idx" "$TC_NC" "$TC_WHITE" "$p" "$TC_NC"
         ((idx++))
     done
 
