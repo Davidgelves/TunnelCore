@@ -2832,7 +2832,11 @@ EOF
     add_host="$domain"
     host_header=""
     sni=""
-    [[ "$link_tls" == "tls" ]] && host_header="$domain" && sni="${V2SEL_SNI:-$domain}"
+    if [[ "$link_tls" == "tls" ]]; then
+    host_header="$domain"
+    sni="${V2SEL_SNI:-You-HostName.com}"
+    add_host="local"
+    fi
     enc_path="$(v2ray_urlencode_path "$path")"
     if [[ "$proto" == "vmess" ]]; then
     local tls_value=""
@@ -2852,7 +2856,7 @@ EOF
     fi
     clear
     v2ray_title "Nuevo Usuario v2ray ${proto} ${link_tls}"
-    printf "\033[1;33mSERVICIO:\033[0m \033[1;37m%s\033[0m\n" "${V2SEL_NAME}"
+    printf "\033[1;33mSERVICIO:\033[0m \033[1;37mv2ray\033[0m\n"
     printf "\033[1;33mPROTOCOLO:\033[0m \033[1;37m%s\033[0m\n" "$proto"
     printf "\033[1;33mNOMBRE:\033[0m \033[1;37m%s\033[0m\n" "$nick"
     printf "\033[1;33mUUID:\033[0m \033[1;37m%s\033[0m\n" "$uuid"
