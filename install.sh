@@ -61,7 +61,7 @@ TC_YELLOW='\033[1;33m'
 TC_CYAN='\033[1;38;2;76;228;255m'
 TC_WHITE='\033[1;37m'
 TC_NC='\033[0m'
-echo -e "${TC_CYAN}"
+printf '%b' "${TC_CYAN}"
 cat <<'BANNER'
  _______                     _  _____
 |__   __|                   | |/ ____|
@@ -70,19 +70,9 @@ cat <<'BANNER'
    | | |_| | | | | | | |  __/ | |___| (_) | | |  __/
    |_|\__,_|_| |_|_| |_|\___|_|\_____\___/|_|  \___|
 BANNER
-echo -e "${TC_NC}"
-echo -e "${TC_CYAN}"
-echo "            TUNNELCORE"
-echo -e "${TC_NC}"
-echo ""
-echo -e "${TC_CYAN}"
-echo "    Desarrollador: J DAVID AG"
-echo -e "${TC_NC}"
-echo ""
-echo -e "${TC_CYAN}"
-echo '   Escriba "menu" para ingresar'
-echo -e "${TC_NC}"
-echo ""
+printf '%b\n%b            TUNNELCORE%b\n\n' "${TC_NC}" "${TC_CYAN}" "${TC_NC}"
+printf '%b    Desarrollador: J DAVID AG%b\n\n' "${TC_CYAN}" "${TC_NC}"
+printf '%b   Escriba %b"menu"%b para ingresar%b\n\n\n\n' "${TC_CYAN}" "${TC_WHITE}" "${TC_CYAN}" "${TC_NC}"
 EOF
     chmod +x /etc/profile.d/tunnelcore.sh
     grep -qxF '. /etc/profile.d/tunnelcore.sh' /root/.bashrc 2>/dev/null || echo '. /etc/profile.d/tunnelcore.sh' >> /root/.bashrc
