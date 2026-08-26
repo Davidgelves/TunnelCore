@@ -20,6 +20,20 @@ tc_install_step() {
     echo -e "${YELLOW}[*] $1${NC}"
 }
 
+TC_INSTALL_TOTAL=8
+TC_INSTALL_CURRENT=0
+tc_install_progress() {
+    local label="$1" percent filled empty i
+    TC_INSTALL_CURRENT=$((TC_INSTALL_CURRENT + 1))
+    percent=$((TC_INSTALL_CURRENT * 100 / TC_INSTALL_TOTAL))
+    filled=$((percent / 5))
+    empty=$((20 - filled))
+    printf "${CYAN}["
+    for ((i=0; i<filled; i++)); do printf "#"; done
+    for ((i=0; i<empty; i++)); do printf "."; done
+    printf "] ${WHITE}%3s%%${NC} ${YELLOW}%s${NC}\n" "$percent" "$label"
+}
+
 tc_install_ok() {
     echo -e "${GREEN}[OK] $1${NC}"
 }
@@ -98,11 +112,11 @@ if ! command -v apt-get >/dev/null 2>&1; then
     exit 1
 fi
 
-tc_install_step "Actualizando repositorios del sistema..."
+tc_install_progress "Actualizando repositorios del sistema..."
 apt-get update -y || true
 
-tc_install_step "Instalando paquetes necesarios..."
-TC_PACKAGES=(curl wget git python3 unzip jq iptables net-tools ca-certificates openssl lsof)
+tc_install_progress "Instalando paquetes necesarios..."
+TC_PACKAGES=(curl wget git python3 unzip jq iptables net-tools ca-certificates openssl lsof libstdc++6 libcurl4-openssl-dev)
 apt-get install -y "${TC_PACKAGES[@]}" || {
     tc_install_fail "No se pudieron instalar las dependencias base."
     echo -e "${WHITE}Paquetes requeridos:${NC} ${TC_PACKAGES[*]}"
@@ -113,7 +127,7 @@ tc_install_ok "Dependencias instaladas correctamente."
 INSTALL_DIR="/opt/tunnelcore"
 REPO_URL="${TC_INSTALL_REPO:-https://github.com/Davidgelves/TunnelCore.git}"
 
-tc_install_step "Descargando archivos de TunnelCore..."
+tc_install_progress "Descargando archivos de TunnelCore..."
 rm -rf "$INSTALL_DIR"
 if git clone --depth=1 "$REPO_URL" "$INSTALL_DIR" >/dev/null 2>&1; then
     tc_install_ok "Repositorio clonado con exito."
@@ -131,7 +145,7 @@ else
     fi
 fi
 
-tc_install_step "Configurando permisos y comandos del sistema..."
+tc_install_progress "Configurando permisos y comandos del sistema..."
 chmod -R +x "${INSTALL_DIR}"
 ln -sf "${INSTALL_DIR}/tunnelcore" /usr/local/bin/tunnelcore
 ln -sf "${INSTALL_DIR}/tunnelcore" /usr/bin/tunnelcore 2>/dev/null || true
@@ -143,9 +157,10 @@ ln -sf "${INSTALL_DIR}/tunnelcore" /bin/menu 2>/dev/null || true
 if ! grep -q "alias menu=" /root/.bashrc 2>/dev/null; then
     echo "alias menu='tunnelcore'" >> /root/.bashrc
 fi
+tc_install_progress "Instalando presentacion de bienvenida..."
 tc_install_login_banner
 
-tc_install_step "Preparando directorios de configuracion..."
+tc_install_progress "Preparando directorios de configuracion..."
 mkdir -p /etc/tunnelcore/passwords /etc/tunnelcore/backups /etc/tunnelcore/proxy
 chmod 700 /etc/tunnelcore/passwords
 [[ -f /etc/tunnelcore/users.db ]] || touch /etc/tunnelcore/users.db
@@ -165,10 +180,14 @@ EOF
 fi
 
 if [[ -f "${INSTALL_DIR}/modules/protocols/proxy_server.py" ]]; then
+    tc_install_progress "Preparando servicios auxiliares..."
     cp -f "${INSTALL_DIR}/modules/protocols/proxy_server.py" /etc/tunnelcore/proxy/proxy_server.py
     chmod +x /etc/tunnelcore/proxy/proxy_server.py
+else
+    tc_install_progress "Preparando servicios auxiliares..."
 fi
 
+tc_install_progress "Aplicando reinicios necesarios..."
 if systemctl is-active --quiet tunnelcore-proxy 2>/dev/null; then
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl restart tunnelcore-proxy >/dev/null 2>&1 || true
