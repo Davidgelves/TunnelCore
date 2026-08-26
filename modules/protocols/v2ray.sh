@@ -959,13 +959,25 @@ v2ray_ensure_legacy_config "$config_v2ray"
 
     }
     unistallv2 () {
-    source <(curl -sL https://multi.netlify.app/v2ray.sh) --remove > /dev/null 2>&1
-    systemctl stop xray >/dev/null 2>&1
-    systemctl disable xray >/dev/null 2>&1
-    rm -f /etc/systemd/system/xray.service /usr/local/bin/xray /usr/bin/xray /bin/xray >/dev/null 2>&1
-    rm -rf /usr/local/etc/xray /etc/xray /var/log/xray >/dev/null 2>&1
-    systemctl daemon-reload >/dev/null 2>&1
-    rm -rf /etc/SSHPlus/RegV2ray > /dev/null 2>&1
+    local unit
+    source <(curl -sL https://multi.netlify.app/v2ray.sh) --remove > /dev/null 2>&1 || true
+    for unit in $(systemctl list-units 'v2ray@*.service' 'xray@*.service' --all --no-legend 2>/dev/null | awk '{print $1}'); do
+    systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    done
+    for unit in $(systemctl list-unit-files 'v2ray@*.service' 'xray@*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+    systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    done
+    systemctl stop xray v2ray >/dev/null 2>&1 || true
+    systemctl disable xray v2ray >/dev/null 2>&1 || true
+    pkill -x xray >/dev/null 2>&1 || true
+    pkill -x v2ray >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/xray.service /etc/systemd/system/v2ray.service /etc/systemd/system/xray@.service /etc/systemd/system/v2ray@.service >/dev/null 2>&1
+    rm -f /usr/local/bin/xray /usr/bin/xray /bin/xray /usr/local/bin/v2ray /usr/bin/v2ray /bin/v2ray >/dev/null 2>&1
+    rm -rf /usr/local/etc/xray /usr/local/etc/v2ray /etc/xray /etc/v2ray /var/log/xray >/dev/null 2>&1
+    rm -rf /root/TunnelCore/v2ray /root/TunnelCore/certificados/local >/dev/null 2>&1
+    rm -rf /etc/SSHPlus/v2ray /etc/SSHPlus/RegV2ray > /dev/null 2>&1
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl reset-failed >/dev/null 2>&1 || true
     echo -e "\n\033[1;32mV2RAY ELIMINADO CORRECTAMENTE.\033[0m"
     echo -e "${SSHPlus_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;37m* \033[1;33mEnter para continuar\033[0m" && read enter
