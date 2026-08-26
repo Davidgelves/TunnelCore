@@ -621,13 +621,13 @@ tc_user_info() {
     fi
 
     local total_u=${#all_users[@]}
-    local total_on=0 total_exp=0
+    local total_exp=0
 
-    printf '%b%-16s %-16s %-14s %-10s %s%b\n' "$TC_CYAN" "USUARIO" "CONTRASEÑA" "EXPIRA" "CONEX/LIM" "ESTADO" "$TC_NC"
+    printf '%b# %-16s %-16s %-14s %-12s%b\n' "$TC_CYAN" "USUARIO" "CONTRASEÑA" "EXPIRA" "CONEX/LIMITE" "$TC_NC"
     tc_line
 
     for u in "${all_users[@]}"; do
-        local p exp_d conns lim st
+        local p exp_d conns lim
         p="$(tc_get_user_password "$u")"
         exp_d="$(tc_get_user_exp_days "$u")"
         conns="$(tc_user_active_conns "$u")"
@@ -635,24 +635,17 @@ tc_user_info() {
 
         if [[ "$exp_d" == "Vencido" ]]; then
             (( total_exp++ ))
-            st="${TC_RED}VENCIDO${TC_NC}"
-        elif (( conns > 0 )); then
-            (( total_on += conns ))
-            st="${TC_GREEN}ONLINE${TC_NC}"
-        else
-            st="${TC_WHITE}OFFLINE${TC_NC}"
         fi
 
-        printf '%b%-16s%b %b%-16s%b %-14s %-10s %b\n' \
+        printf '%b%-18s%b %b%-16s%b %-14s %-12s\n' \
             "$TC_WHITE" "$u" "$TC_NC" \
             "$TC_PALE_GOLD" "$p" "$TC_NC" \
-            "$exp_d" "${conns}/${lim}" "$st"
+            "$exp_d" "${conns}/${lim}"
     done
 
     tc_line
-    printf '%bTotal Usuarios:%b %b%s%b  |  %bConectados:%b %b%s%b  |  %bExpirados:%b %b%s%b\n' \
+    printf '%b# Total Usuarios:%b %b%s%b  |  %bExpirados:%b %b%s%b\n' \
         "$TC_YELLOW" "$TC_NC" "$TC_WHITE" "$total_u" "$TC_NC" \
-        "$TC_YELLOW" "$TC_NC" "$TC_GREEN" "$total_on" "$TC_NC" \
         "$TC_YELLOW" "$TC_NC" "$TC_RED" "$total_exp" "$TC_NC"
     tc_line
     tc_pause
