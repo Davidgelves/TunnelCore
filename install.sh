@@ -28,6 +28,46 @@ tc_install_fail() {
     echo -e "${RED}[ERROR] $1${NC}"
 }
 
+tc_install_login_banner() {
+    cat > /etc/profile.d/tunnelcore.sh <<'EOF'
+#!/bin/bash
+case "$-" in
+    *i*) ;;
+    *) return 0 2>/dev/null || exit 0 ;;
+esac
+if [[ -n "${TUNNELCORE_BANNER_SHOWN:-}" ]]; then
+    return 0 2>/dev/null || exit 0
+fi
+export TUNNELCORE_BANNER_SHOWN=1
+
+TC_RED='\033[1;31m'
+TC_GREEN='\033[1;32m'
+TC_YELLOW='\033[1;33m'
+TC_CYAN='\033[1;36m'
+TC_WHITE='\033[1;37m'
+TC_NC='\033[0m'
+
+echo -e "${TC_GREEN}"
+cat <<'BANNER'
+ _______                         _  _____
+|__   __|                       | |/ ____|
+   | |_   _ _ __  _ __   ___  | | |     ___  _ __ ___
+   | | | | | '_ \| '_ \ / _ \ | | |    / _ \| '__/ _ \
+   | | |_| | | | | | | |  __/ | | |___| (_) | | |  __/
+   |_|\__,_|_| |_|_| |_|\___| |_|\_____\___/|_|  \___|
+BANNER
+echo -e "${TC_NC}"
+echo -e "            ${TC_CYAN}TUNNELCORE${TC_NC}"
+echo ""
+echo -e "    ${TC_YELLOW}Desarrollador:${TC_NC} ${TC_WHITE}J DAVID AG${TC_NC}"
+echo ""
+echo -e "   ${TC_GREEN}Escriba${TC_NC} ${TC_YELLOW}\"menu\"${TC_NC} ${TC_GREEN}para ingresar${TC_NC}"
+echo ""
+EOF
+    chmod +x /etc/profile.d/tunnelcore.sh
+    grep -qxF '. /etc/profile.d/tunnelcore.sh' /root/.bashrc 2>/dev/null || echo '. /etc/profile.d/tunnelcore.sh' >> /root/.bashrc
+}
+
 tc_install_os_name() {
     if [[ -f /etc/os-release ]]; then
         . /etc/os-release
@@ -103,6 +143,7 @@ ln -sf "${INSTALL_DIR}/tunnelcore" /bin/menu 2>/dev/null || true
 if ! grep -q "alias menu=" /root/.bashrc 2>/dev/null; then
     echo "alias menu='tunnelcore'" >> /root/.bashrc
 fi
+tc_install_login_banner
 
 tc_install_step "Preparando directorios de configuracion..."
 mkdir -p /etc/tunnelcore/passwords /etc/tunnelcore/backups /etc/tunnelcore/proxy
