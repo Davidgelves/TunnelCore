@@ -38,27 +38,84 @@ tc_stunnel_dropbear_port() {
     tc_stunnel_conf_value "/etc/default/dropbear" "DROPBEAR_PORT" "90"
 }
 
+tc_stunnel_tcp_listening() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)${port}$"
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tln 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)${port}$"
+    else
+        return 1
+    fi
+}
+
+tc_stunnel_add_target_option() {
+    local label="$1" port="$2"
+    [[ -z "$port" || ! "$port" =~ ^[0-9]+$ ]] && return 0
+    tc_stunnel_tcp_listening "$port" || return 0
+    TC_STUNNEL_TARGET_LABELS+=("$label")
+    TC_STUNNEL_TARGET_PORTS+=("$port")
+}
+
+tc_stunnel_load_targets() {
+    local dropbear_p proxy_p proxy_p2 ws_p ssh_ports ssh_port
+    TC_STUNNEL_TARGET_LABELS=()
+    TC_STUNNEL_TARGET_PORTS=()
+
+    if systemctl is-active --quiet ssh 2>/dev/null || systemctl is-active --quiet sshd 2>/dev/null || pgrep -x sshd >/dev/null 2>&1; then
+        ssh_ports="$(grep -hE '^[[:space:]]*Port[[:space:]]+[0-9]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | sort -n -u)"
+        [[ -z "$ssh_ports" ]] && ssh_ports="22"
+        while read -r ssh_port; do
+            [[ -z "$ssh_port" ]] && continue
+            tc_stunnel_add_target_option "SSH (OpenSSH)" "$ssh_port"
+        done <<< "$ssh_ports"
+    fi
+
+    if systemctl is-active --quiet dropbear 2>/dev/null || pgrep -x dropbear >/dev/null 2>&1; then
+        dropbear_p="$(tc_stunnel_dropbear_port)"
+        tc_stunnel_add_target_option "Dropbear SSH" "$dropbear_p"
+    fi
+
+    if systemctl is-active --quiet tunnelcore-proxy 2>/dev/null; then
+        proxy_p="$(tc_stunnel_conf_value "/etc/tunnelcore/proxy/proxy.conf" "PROXY_PORT" "")"
+        proxy_p2="$(tc_stunnel_conf_value "/etc/tunnelcore/proxy/proxy.conf" "PROXY_PORT2" "")"
+        tc_stunnel_add_target_option "Proxy HTTP/SOCKS" "$proxy_p"
+        tc_stunnel_add_target_option "Proxy HTTP/SOCKS 2" "$proxy_p2"
+    fi
+
+    if systemctl is-active --quiet tunnelcore-ws 2>/dev/null; then
+        ws_p="$(tc_stunnel_conf_value "/etc/tunnelcore/websocket/websocket.conf" "WS_PORT" "")"
+        tc_stunnel_add_target_option "WebSocket SSH" "$ws_p"
+    fi
+}
+
 TC_STUNNEL_TARGET="127.0.0.1:22"
 
 tc_stunnel_ask_target() {
     local listen_p="${1:-443}"
-    local dropbear_p proxy_p ws_p manual_p
-    dropbear_p="$(tc_stunnel_dropbear_port)"
-    proxy_p="$(tc_stunnel_conf_value "/etc/tunnelcore/proxy/proxy.conf" "PROXY_PORT" "80")"
-    ws_p="$(tc_stunnel_conf_value "/etc/tunnelcore/websocket/websocket.conf" "WS_PORT" "80")"
+    local manual_p idx label port dots pad_width
 
     while true; do
+        tc_stunnel_load_targets
         tc_clear
         tc_title "CONFIGURAR STUNNEL (REDIRECCION)"
         printf '%bPUERTO SSL (escucha):%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$listen_p" "$TC_NC"
         tc_line
         printf '%b       A QUE PUERTO LOCAL REDIRIGIR EL TRAFICO?%b\n' "$TC_YELLOW" "$TC_NC"
         tc_line
-        printf '%b[1]%b %b> SSH (OpenSSH) ....................%b %b22%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$TC_NC"
-        printf '%b[2]%b %b> Dropbear SSH .....................%b %b%s%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$dropbear_p" "$TC_NC"
-        printf '%b[3]%b %b> Proxy HTTP/SOCKS .................%b %b%s%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$proxy_p" "$TC_NC"
-        printf '%b[4]%b %b> WebSocket SSH ....................%b %b%s%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$ws_p" "$TC_NC"
-        printf '%b[5]%b %b> INGRESAR PUERTO MANUALMENTE%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC"
+        if [[ ${#TC_STUNNEL_TARGET_PORTS[@]} -eq 0 ]]; then
+            tc_msg_warn "No hay puertos compatibles activos detectados."
+        else
+            for idx in "${!TC_STUNNEL_TARGET_PORTS[@]}"; do
+                label="${TC_STUNNEL_TARGET_LABELS[$idx]}"
+                port="${TC_STUNNEL_TARGET_PORTS[$idx]}"
+                dots=".............................."
+                pad_width=$((30 - ${#label}))
+                (( pad_width < 1 )) && pad_width=1
+                printf '%b[%d]%b %b> %s %.*s%b %b%s%b\n' "$TC_NEON" "$((idx + 1))" "$TC_NC" "$TC_WHITE" "$label" "$pad_width" "$dots" "$TC_NC" "$TC_GREEN" "$port" "$TC_NC"
+            done
+        fi
+        printf '%b[%d]%b %b> INGRESAR PUERTO MANUALMENTE%b\n' "$TC_NEON" "$((${#TC_STUNNEL_TARGET_PORTS[@]} + 1))" "$TC_NC" "$TC_WHITE" "$TC_NC"
         tc_line
         tc_opt "0" "$(_t 'cancel')"
         tc_line
@@ -66,12 +123,13 @@ tc_stunnel_ask_target() {
         tc_prompt
         read -r ch
 
-        case "$ch" in
-            1|01) TC_STUNNEL_TARGET="127.0.0.1:22"; return 0 ;;
-            2|02) TC_STUNNEL_TARGET="127.0.0.1:${dropbear_p}"; return 0 ;;
-            3|03) TC_STUNNEL_TARGET="127.0.0.1:${proxy_p}"; return 0 ;;
-            4|04) TC_STUNNEL_TARGET="127.0.0.1:${ws_p}"; return 0 ;;
-            5|05)
+        [[ "$ch" == "0" || "$ch" == "00" ]] && return 1
+        if [[ "$ch" =~ ^0*[0-9]+$ ]]; then
+            ch="$((10#$ch))"
+            if (( ch >= 1 && ch <= ${#TC_STUNNEL_TARGET_PORTS[@]} )); then
+                TC_STUNNEL_TARGET="127.0.0.1:${TC_STUNNEL_TARGET_PORTS[$((ch - 1))]}"
+                return 0
+            elif (( ch == ${#TC_STUNNEL_TARGET_PORTS[@]} + 1 )); then
                 printf '%bIngrese puerto destino local [1-65535]:%b ' "$TC_DARK_GREEN" "$TC_NC"
                 read -r manual_p
                 if tc_valid_port "$manual_p"; then
@@ -80,10 +138,11 @@ tc_stunnel_ask_target() {
                 fi
                 tc_msg_err "Puerto invalido."
                 sleep 1
-                ;;
-            0|00) return 1 ;;
-            *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
-        esac
+                continue
+            fi
+        fi
+        tc_msg_err "$(_t 'invalid_option')"
+        sleep 1
     done
 }
 
