@@ -68,6 +68,12 @@ tc_user_active_conns() {
             NR > 1 && $1 ~ /^(sshd|dropbear)$/ {
                 endpoint=$9
                 sub(/^.*->/, "", endpoint)
+                if (endpoint ~ /^\[/) {
+                    sub(/^\[/, "", endpoint)
+                    sub(/\]:[0-9]+$/, "", endpoint)
+                } else {
+                    sub(/:[0-9]+$/, "", endpoint)
+                }
                 if (endpoint != "") seen[endpoint]=1
             }
             END {
