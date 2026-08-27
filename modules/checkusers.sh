@@ -137,8 +137,8 @@ def user_password(user):
 
 
 def format_date(exp, date_format):
-    if date_format == "DD-MM-YYYY":
-        return exp.strftime("%d-%m-%Y")
+    if date_format == "DD-MM-YY":
+        return exp.strftime("%d-%m-%y")
     return exp.strftime("%d%m%y")
 
 
@@ -305,13 +305,13 @@ tc_checkuser_select_date_format() {
         printf '%b------------------------------------------------------------%b\n' "$TC_WHITE" "$TC_NC"
         printf '%bFORMATO DE FECHA...%b\n' "$TC_YELLOW" "$TC_NC"
         tc_opt "1" "DDMMYY"
-        tc_opt "2" "(01-02-1996)"
+        tc_opt "2" "(DD-MM-YY)"
         tc_line
         printf '%bFORMATO:%b ' "$TC_CYAN" "$TC_NC"
         read -r opt
         case "$opt" in
             1|01) TC_CHECKUSER_SELECTED_DATE_FORMAT="DDMMYY"; return 0 ;;
-            2|02) TC_CHECKUSER_SELECTED_DATE_FORMAT="DD-MM-YYYY"; return 0 ;;
+            2|02) TC_CHECKUSER_SELECTED_DATE_FORMAT="DD-MM-YY"; return 0 ;;
             *) tc_msg_err "Opcion no valida."; sleep 1 ;;
         esac
     done
