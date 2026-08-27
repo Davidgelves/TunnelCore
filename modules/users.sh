@@ -61,34 +61,42 @@ tc_get_user_limit() {
 
 tc_user_active_conns() {
     local u="$1"
-    local ssh_tcp=0 ssh_who=0 ssh_count=0 ovp=0 fallback=0
-
-    if command -v lsof >/dev/null 2>&1; then
-        ssh_tcp="$(lsof -nP -a -u "$u" -iTCP -sTCP:ESTABLISHED 2>/dev/null | awk '
-            NR > 1 && $1 ~ /^(sshd|dropbear)$/ {
-                endpoint=$9
-                sub(/^.*->/, "", endpoint)
-                if (endpoint ~ /^\[/) {
-                    sub(/^\[/, "", endpoint)
-                    sub(/\]:[0-9]+$/, "", endpoint)
-                } else {
-                    sub(/:[0-9]+$/, "", endpoint)
-                }
-                if (endpoint != "") seen[endpoint]=1
-            }
-            END {
-                for (endpoint in seen) count++
-                print count+0
-            }
-        ')"
-    fi
-    [[ ! "$ssh_tcp" =~ ^[0-9]+$ ]] && ssh_tcp=0
+    local ssh_tcp=0 ssh_who=0 ssh_proc=0 drop_proc=0 ssh_count=0 ovp=0 fallback=0
 
     ssh_who="$(who 2>/dev/null | awk -v user="$u" '$1 == user {gsub(/[()]/, "", $5); if ($5 != "") seen[$5]=1} END {for (ip in seen) count++; print count+0}')"
     [[ ! "$ssh_who" =~ ^[0-9]+$ ]] && ssh_who=0
+
+    ssh_proc="$(ps -o user=,pid= -C sshd 2>/dev/null | awk -v user="$u" '$1 == user {count++} END {print count+0}')"
+    [[ ! "$ssh_proc" =~ ^[0-9]+$ ]] && ssh_proc=0
+
+    drop_proc="$(ps -u "$u" -o comm= 2>/dev/null | awk '$1 == "dropbear" {count++} END {print count+0}')"
+    [[ ! "$drop_proc" =~ ^[0-9]+$ ]] && drop_proc=0
+
     if (( ssh_who > 0 )); then
         ssh_count="$ssh_who"
+    elif (( ssh_proc + drop_proc > 0 )); then
+        ssh_count="$((ssh_proc + drop_proc))"
     else
+        if command -v lsof >/dev/null 2>&1; then
+            ssh_tcp="$(lsof -nP -a -u "$u" -iTCP -sTCP:ESTABLISHED 2>/dev/null | awk '
+                NR > 1 && $1 ~ /^(sshd|dropbear)$/ {
+                    endpoint=$9
+                    sub(/^.*->/, "", endpoint)
+                    if (endpoint ~ /^\[/) {
+                        sub(/^\[/, "", endpoint)
+                        sub(/\]:[0-9]+$/, "", endpoint)
+                    } else {
+                        sub(/:[0-9]+$/, "", endpoint)
+                    }
+                    if (endpoint != "") seen[endpoint]=1
+                }
+                END {
+                    for (endpoint in seen) count++
+                    print count+0
+                }
+            ')"
+        fi
+        [[ ! "$ssh_tcp" =~ ^[0-9]+$ ]] && ssh_tcp=0
         ssh_count="$ssh_tcp"
     fi
 
