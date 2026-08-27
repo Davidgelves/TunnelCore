@@ -230,6 +230,30 @@ class CheckUserHandler(http.server.BaseHTTPRequestHandler):
             "users": online if path.lower() in ("", "online", "onlines") else users,
         })
 
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        raw_body = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else ""
+        user = ""
+
+        try:
+            data = json.loads(raw_body) if raw_body else {}
+            user = str(data.get("user") or data.get("usuario") or "").strip()
+        except Exception:
+            params = parse_qs(raw_body)
+            user = (params.get("user", [""])[0] or params.get("usuario", [""])[0]).strip()
+
+        user = unquote(user).strip()
+        if not user:
+            self.respond_text(200, "not exist")
+            return
+
+        for item in load_users():
+            if item["username"] == user and item["is_active"]:
+                self.respond(200, item)
+                return
+
+        self.respond_text(200, "not exist")
+
     def respond(self, code, data):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
