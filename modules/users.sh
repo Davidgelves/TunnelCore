@@ -61,19 +61,39 @@ tc_get_user_limit() {
 
 tc_user_active_conns() {
     local u="$1"
-    local sqd=0 ovp=0 drp=0
-    sqd="$(ps -u "$u" 2>/dev/null | grep 'sshd' | wc -l)"
-    [[ ! "$sqd" =~ ^[0-9]+$ ]] && sqd=0
+    local ssh_tcp=0 ssh_who=0 ssh_count=0 ovp=0 fallback=0
+
+    if command -v lsof >/dev/null 2>&1; then
+        ssh_tcp="$(lsof -nP -a -u "$u" -iTCP -sTCP:ESTABLISHED 2>/dev/null | awk '
+            NR > 1 && $1 ~ /^(sshd|dropbear)$/ {
+                endpoint=$9
+                sub(/^.*->/, "", endpoint)
+                if (endpoint != "") seen[endpoint]=1
+            }
+            END {
+                for (endpoint in seen) count++
+                print count+0
+            }
+        ')"
+    fi
+    [[ ! "$ssh_tcp" =~ ^[0-9]+$ ]] && ssh_tcp=0
+
+    ssh_who="$(who 2>/dev/null | awk -v user="$u" '$1 == user {gsub(/[()]/, "", $5); if ($5 != "") seen[$5]=1} END {for (ip in seen) count++; print count+0}')"
+    [[ ! "$ssh_who" =~ ^[0-9]+$ ]] && ssh_who=0
+    ssh_count="$ssh_tcp"
+    (( ssh_who > ssh_count )) && ssh_count="$ssh_who"
 
     if [[ -e /etc/openvpn/openvpn-status.log ]]; then
         ovp="$(grep -E ,"$u", /etc/openvpn/openvpn-status.log 2>/dev/null | wc -l)"
     fi
     [[ ! "$ovp" =~ ^[0-9]+$ ]] && ovp=0
 
-    drp="$(ps aux 2>/dev/null | grep dropbear | grep -w "$u" | grep -v grep | wc -l)"
-    [[ ! "$drp" =~ ^[0-9]+$ ]] && drp=0
+    if (( ssh_count == 0 && ovp == 0 )); then
+        fallback="$(ps -u "$u" -o ppid=,comm= 2>/dev/null | awk '$2 ~ /^(sshd|dropbear)$/ {seen[$1]=1} END {for (pid in seen) count++; print count+0}')"
+        [[ ! "$fallback" =~ ^[0-9]+$ ]] && fallback=0
+    fi
 
-    echo "$((sqd + ovp + drp))"
+    echo "$((ssh_count + ovp + fallback))"
 }
 
 tc_get_user_exp_days() {
