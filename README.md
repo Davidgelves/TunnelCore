@@ -1,65 +1,41 @@
 # TunnelCore
 
-Gestión de VPS / SSH / Tunneling — Modular, limpio, sin errores heredados.
+Panel de gestion para VPS, SSH y tunneling.
 
-## Instalación Rápida
+TunnelCore esta pensado para instalarse y usarse directamente en un servidor VPS. Este repositorio no esta orientado a modificacion, redistribucion o reprogramacion del script.
+
+## Instalacion
 
 Ejecute en su VPS como usuario `root`:
 
 ```bash
-wget -qO tunnelcore "https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh?$(date +%s)" && chmod +x tunnelcore && bash tunnelcore
+wget -qO tunnelcore "https://gitlab.com/Davidgelves/tunnelcore/-/raw/main/install.sh?$(date +%s)" && chmod +x tunnelcore && bash tunnelcore
 ```
 
-O también con `curl`:
+O tambien con `curl`:
 
 ```bash
-bash <(curl -fsSL "https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh?$(date +%s)")
-```
-
-## Estructura
-
-```
-TunnelCore/
-├── tunnelcore          # Punto de entrada principal
-├── core/               # Librerías compartidas
-│   ├── ui.sh           # Colores, menú, prompts
-│   ├── utils.sh        # Validaciones, detección de sistema
-│   └── config.sh       # Configuración persistente
-├── modules/            # Módulos funcionales (en desarrollo)
-│   ├── users.sh        # Gestión de usuarios
-│   ├── protocols/      # Protocolos de conexión
-│   │   ├── v2ray.sh
-│   │   ├── slowdns.sh
-│   │   ├── hysteria.sh
-│   │   └── ...
-│   └── ...
-└── config/             # Datos persistentes (/etc/tunnelcore)
+bash <(curl -fsSL "https://gitlab.com/Davidgelves/tunnelcore/-/raw/main/install.sh?$(date +%s)")
 ```
 
 ## Requisitos
 
-- Ubuntu 18.04+ / Debian 9+
-- Root access
-- bash 4.0+
+- Ubuntu 18.04+ o Debian 9+
+- Acceso root
+- Bash 4.0+
 
-## Protocolos Soportados
+## Uso
 
-| Protocolo | Fuente Oficial | Estado |
-|-----------|---------------|--------|
-| Xray (V2Ray) | [XTLS/Xray-core](https://github.com/XTLS/Xray-core) | 🔜 Próximo |
-| SlowDNS | [dnstt](https://www.bamsoftware.com/software/dnstt/) | 🔜 Próximo |
-| Hysteria v1/v2 | [apernet/hysteria](https://github.com/apernet/hysteria) | 🔜 Próximo |
-| BadVPN | [ambrop72/badvpn](https://github.com/ambrop72/badvpn) | 🔜 Próximo |
-| Proxy SOCKS | Python integrado | 🔜 Próximo |
-| WebSocket SSH | Python integrado | 🔜 Próximo |
-| Stunnel | `apt: stunnel4` | 🔜 Próximo |
-| Squid | `apt: squid` | 🔜 Próximo |
-| Dropbear | `apt: dropbear` | 🔜 Próximo |
+Despues de instalar, ejecute:
+
+```bash
+tunnelcore
+```
+
+## Aviso
+
+Este proyecto es de uso personal y su codigo no debe ser copiado, vendido, republicado o usado para crear versiones derivadas sin autorizacion del autor.
 
 ## Autor
 
-**J DAVID AG** — [@Davidgelves](https://github.com/Davidgelves)
-
-## Licencia
-
-MIT
+**J DAVID AG** - [@Davidgelves](https://gitlab.com/Davidgelves)
