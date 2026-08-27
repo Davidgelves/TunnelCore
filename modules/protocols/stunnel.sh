@@ -28,6 +28,65 @@ tc_stunnel_has_ports() {
     [[ -f "$TC_STUNNEL_CONF" ]] && grep -qE "^[[:space:]]*accept[[:space:]]*=" "$TC_STUNNEL_CONF" 2>/dev/null
 }
 
+tc_stunnel_conf_value() {
+    local file="$1" key="$2" default="$3" value
+    value="$(grep -oE "^${key}=\"?[0-9]+\"?" "$file" 2>/dev/null | head -n1 | sed -E 's/^[^=]+=//;s/"//g')"
+    echo "${value:-$default}"
+}
+
+tc_stunnel_dropbear_port() {
+    tc_stunnel_conf_value "/etc/default/dropbear" "DROPBEAR_PORT" "90"
+}
+
+TC_STUNNEL_TARGET="127.0.0.1:22"
+
+tc_stunnel_ask_target() {
+    local listen_p="${1:-443}"
+    local dropbear_p proxy_p ws_p manual_p
+    dropbear_p="$(tc_stunnel_dropbear_port)"
+    proxy_p="$(tc_stunnel_conf_value "/etc/tunnelcore/proxy/proxy.conf" "PROXY_PORT" "80")"
+    ws_p="$(tc_stunnel_conf_value "/etc/tunnelcore/websocket/websocket.conf" "WS_PORT" "80")"
+
+    while true; do
+        tc_clear
+        tc_title "CONFIGURAR STUNNEL (REDIRECCION)"
+        printf '%bPUERTO SSL (escucha):%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$listen_p" "$TC_NC"
+        tc_line
+        printf '%b       A QUE PUERTO LOCAL REDIRIGIR EL TRAFICO?%b\n' "$TC_YELLOW" "$TC_NC"
+        tc_line
+        printf '%b[1]%b %b> SSH (OpenSSH) ....................%b %b22%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$TC_NC"
+        printf '%b[2]%b %b> Dropbear SSH .....................%b %b%s%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$dropbear_p" "$TC_NC"
+        printf '%b[3]%b %b> Proxy HTTP/SOCKS .................%b %b%s%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$proxy_p" "$TC_NC"
+        printf '%b[4]%b %b> WebSocket SSH ....................%b %b%s%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$ws_p" "$TC_NC"
+        printf '%b[5]%b %b> INGRESAR PUERTO MANUALMENTE%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC"
+        tc_line
+        tc_opt "0" "$(_t 'cancel')"
+        tc_line
+
+        tc_prompt
+        read -r ch
+
+        case "$ch" in
+            1|01) TC_STUNNEL_TARGET="127.0.0.1:22"; return 0 ;;
+            2|02) TC_STUNNEL_TARGET="127.0.0.1:${dropbear_p}"; return 0 ;;
+            3|03) TC_STUNNEL_TARGET="127.0.0.1:${proxy_p}"; return 0 ;;
+            4|04) TC_STUNNEL_TARGET="127.0.0.1:${ws_p}"; return 0 ;;
+            5|05)
+                printf '%bIngrese puerto destino local [1-65535]:%b ' "$TC_DARK_GREEN" "$TC_NC"
+                read -r manual_p
+                if tc_valid_port "$manual_p"; then
+                    TC_STUNNEL_TARGET="127.0.0.1:${manual_p}"
+                    return 0
+                fi
+                tc_msg_err "Puerto invalido."
+                sleep 1
+                ;;
+            0|00) return 1 ;;
+            *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
+        esac
+    done
+}
+
 tc_stunnel_gen_cert() {
     mkdir -p /etc/stunnel
     if [[ ! -f "$TC_STUNNEL_CERT" ]]; then
@@ -124,17 +183,17 @@ tc_stunnel_add_port() {
         break
     done
 
-    printf '%bPuerto destino local a redirigir (SSH=22, Dropbear=110/443, WS=80) [Enter = 22]:%b ' "$TC_DARK_GREEN" "$TC_NC"
-    read -r target
-    [[ -z "$target" ]] && target="22"
-    [[ "$target" =~ ^[0-9]+$ ]] || target="22"
+    if ! tc_stunnel_ask_target "$port"; then
+        return
+    fi
+    target="$TC_STUNNEL_TARGET"
 
     local tag="ssl-${port}"
     cat >> "$TC_STUNNEL_CONF" <<EOF
 
 [${tag}]
 accept = ${port}
-connect = 127.0.0.1:${target}
+connect = ${target}
 EOF
 
     # Habilitar en /etc/default/stunnel4
@@ -147,7 +206,7 @@ EOF
     systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
 
     if tc_stunnel_is_running; then
-        tc_msg_ok "Puerto SSL $port configurado y activo redirigiendo a 127.0.0.1:$target."
+        tc_msg_ok "Puerto SSL $port configurado y activo redirigiendo a $target."
     else
         tc_msg_warn "Puerto agregado. Si no inició, verifique que el puerto $port no esté ocupado por otro servicio."
     fi
