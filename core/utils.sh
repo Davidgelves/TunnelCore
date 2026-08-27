@@ -186,7 +186,7 @@ tc_connected_users() {
                 conns="$(ps -u "$user" 2>/dev/null | awk 'NR>1 {count++} END {print count+0}')"
             fi
             [[ "$conns" =~ ^[0-9]+$ ]] || conns=0
-            (( count += conns ))
+            (( conns > 0 )) && (( count++ ))
         done < "$TC_USERS_DB"
     else
         count="$(who 2>/dev/null | awk '{print $1}' | sort -u | wc -l | tr -d ' ')"
