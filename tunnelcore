@@ -274,6 +274,7 @@ tc_main_menu() {
             10)   tc_module_extras ;;
             11)   tc_reboot_vps ;;
             12|0|00|q|Q)
+                clear
                 exit 0
                 ;;
             *)
