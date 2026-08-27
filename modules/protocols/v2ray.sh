@@ -672,7 +672,6 @@ msg17='\033[1;37m\033[1;33m(Sin datos - Para cancelar pulse CTRL + C)\033[0m'
     echo -e "\033[1;37mTunnelCore instalara Xray-core nativo para crear perfiles V2Ray/Xray.\033[0m"
     echo -e "\033[1;33mDespues de instalar podra elegir protocolo, puerto, red, host, path y TLS.\033[0m"
     v2ray_install_wizard
-    fun_v2raymanager
     return
     }
 
@@ -1063,14 +1062,13 @@ v2ray_ensure_legacy_config "$config_v2ray"
     v2ray_title "ANADIR USUARIO | UUID V2RAY"
     local cfg tmp
     cfg="$(v2ray_config_file)"
-    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontro config.json de V2Ray/Xray.\033[0m" && pausa_v2ray && fun_v2raymanager
+    [[ -z "$cfg" ]] && echo -e "\033[1;31mNo se encontro config.json de V2Ray/Xray.\033[0m" && pausa_v2ray && return
     v2ray_ensure_legacy_config "$cfg"
     cfg="/etc/v2ray/config.json"
     if ! v2ray_require_jq; then
         echo -e "\033[1;31mjq no esta instalado; no se puede modificar el JSON de forma segura.\033[0m"
         echo -e "\033[1;37mInstale jq y vuelva a intentar crear el usuario V2Ray.\033[0m"
         pausa_v2ray
-        fun_v2raymanager
         return
     fi
 
@@ -1388,7 +1386,7 @@ EOF
     local cfg tmp
     cfg="$(v2ray_config_file)"
     [[ -n "$cfg" ]] && v2ray_ensure_legacy_config "$cfg" && cfg="/etc/v2ray/config.json"
-    [[ ! -s /etc/SSHPlus/RegV2ray ]] && echo -e "\033[1;31mNo hay usuarios V2RAY registrados.\033[0m" && pausa_v2ray && fun_v2raymanager
+    [[ ! -s /etc/SSHPlus/RegV2ray ]] && echo -e "\033[1;31mNo hay usuarios V2RAY registrados.\033[0m" && pausa_v2ray && return
     echo -e "\033[1;37m        USUARIOS REGISTRADOS A ELIMINAR\033[0m"
     v2ray_line
     printf "\033[1;37m%-20s %s\033[0m\n" "NOMBRE" "UUID"
@@ -1403,7 +1401,7 @@ EOF
     while true; do
     echo -ne "${SSHPlus_CYAN}Opcion:${SCOLOR} "
     read uuid_sel
-    [[ "$uuid_sel" = "0" ]] && fun_v2raymanager
+    [[ "$uuid_sel" = "0" ]] && return
     [[ "$uuid_sel" =~ ^[0-9]+$ ]] && [[ "$uuid_sel" -ge 1 ]] && [[ "$uuid_sel" -le "${#uuid_list[@]}" ]] && break
     echo -e "\033[1;31mOpcion no valida!\033[0m"
     sleep 1
@@ -2368,7 +2366,6 @@ EOF
 
     crear_protocolo_v2ray() {
     v2ray_install_wizard
-    fun_v2raymanager
     return
     local opt proto network tls link_tls port ext_port path domain host_header sni uuid user exp cfg uri enc_path vmess_json vmess_b64 vmess_tls tmp inbound_json password method reality_dest reality_server reality_private reality_public reality_short backup_file test_log port_cfg cfg_name
     clear
@@ -2713,7 +2710,7 @@ EOF
     v2ray_show_port_json() {
     local cfg_file
     clear
-    v2ray_select_config || { fun_v2raymanager; return; }
+    v2ray_select_config || return
     clear
     v2ray_title "conf: config.${V2SEL_PORT}.json"
     cfg_file="$(v2ray_config_path_for_port "$V2SEL_PORT")"
@@ -2724,13 +2721,13 @@ EOF
     fi
     v2ray_line
     pausa_v2ray
-    fun_v2raymanager
+    return
     }
 
     v2ray_edit_port_json() {
     local cfg_file
     clear
-    v2ray_select_config || { fun_v2raymanager; return; }
+    v2ray_select_config || return
     cfg_file="$(v2ray_config_path_for_port "$V2SEL_PORT")"
     ${EDITOR:-nano} "$cfg_file"
     if [[ "$V2SEL_CORE" == "xray" ]]; then
@@ -2746,15 +2743,15 @@ EOF
     sed -n '1,12p' /tmp/tunnelcore-xray-test.log 2>/dev/null
     fi
     pausa_v2ray
-    fun_v2raymanager
+    return
     }
 
     v2ray_delete_protocol() {
     clear
-    v2ray_select_config || { fun_v2raymanager; return; }
+    v2ray_select_config || return
     echo -ne "\033[1;31mEliminar ${V2SEL_NAME} puerto ${V2SEL_PORT}? [S/N]: \033[0m"
     read ok
-    [[ ! "$ok" =~ ^[sS]$ ]] && fun_v2raymanager && return
+    [[ ! "$ok" =~ ^[sS]$ ]] && return
     systemctl disable --now "v2ray@${V2SEL_PORT}" "xray@${V2SEL_PORT}" >/dev/null 2>&1 || true
     rm -f "/root/TunnelCore/v2ray/conf/config.${V2SEL_PORT}.json"
     rm -f "/usr/local/etc/xray/config-${V2SEL_PORT}.json"
@@ -2763,7 +2760,7 @@ EOF
     mv -f /etc/SSHPlus/v2ray/configs.db.tmp /etc/SSHPlus/v2ray/configs.db
     echo -e "\033[1;32mProtocolo eliminado.\033[0m"
     pausa_v2ray
-    fun_v2raymanager
+    return
     }
 
     v2ray_services_status() {
@@ -2775,7 +2772,7 @@ EOF
     echo -e "\033[1;37mRevise si existen archivos config-PORT.json o servicios v2ray@PORT.\033[0m"
     v2ray_line
     pausa_v2ray
-    fun_v2raymanager
+    return
     return
     fi
     for port in $(v2ray_ports_configured); do
@@ -2795,7 +2792,7 @@ EOF
     done
     v2ray_line
     pausa_v2ray
-    fun_v2raymanager
+    return
     }
 
     v2ray_restart_all_services() {
@@ -2814,7 +2811,7 @@ EOF
     done
     [[ "$failed" = "0" ]] && echo -e "\033[1;32mServicios procesados.\033[0m"
     pausa_v2ray
-    fun_v2raymanager
+    return
     }
 
     v2ray_toggle_all_services() {
@@ -2835,13 +2832,13 @@ EOF
     printf "\033[1;37mv2ray@%s -> %s\033[0m\n" "$port" "$action"
     done
     pausa_v2ray
-    fun_v2raymanager
+    return
     }
 
     v2ray_show_logs() {
     local mode="$1" port
     clear
-    v2ray_select_config || { fun_v2raymanager; return; }
+    v2ray_select_config || return
     clear
     v2ray_title "LOG XRAY ${V2SEL_PORT}"
     case "$mode" in
@@ -2850,18 +2847,17 @@ EOF
       *) journalctl -u "v2ray@${V2SEL_PORT}" -n 80 --no-pager ;;
     esac
     pausa_v2ray
-    fun_v2raymanager
+    return
     }
 
     v2ray_add_user_port_config() {
     local cfg nick uuid days valid exp tmp proto network link_tls domain path ext_port add_host host_header sni allow_insecure enc_path uri vmess_json vmess_b64
     clear
-    v2ray_select_config || { menu_usuarios_v2ray; return; }
+    v2ray_select_config || return
     cfg="$(v2ray_config_path_for_port "$V2SEL_PORT")"
     if [[ ! -s "$cfg" ]]; then
     echo -e "\033[1;31mNo existe la configuracion del puerto ${V2SEL_PORT}.\033[0m"
     pausa_v2ray
-    menu_usuarios_v2ray
     return
     fi
     proto="$(jq -r '.inbounds[0].protocol // ""' "$cfg" 2>/dev/null)"
@@ -2870,13 +2866,11 @@ EOF
     echo -e "\033[1;31mNuevo usuario automatico solo esta disponible para VMess/VLESS.\033[0m"
     echo -e "\033[1;37mPara Trojan/Shadowsocks cree otro protocolo o edite el JSON manualmente.\033[0m"
     pausa_v2ray
-    menu_usuarios_v2ray
     return
     fi
     if ! jq -e '.inbounds[0].settings.clients | type == "array"' "$cfg" >/dev/null 2>&1; then
     echo -e "\033[1;31mEsta configuracion no tiene lista clients editable.\033[0m"
     pausa_v2ray
-    menu_usuarios_v2ray
     return
     fi
     clear
@@ -2894,7 +2888,6 @@ EOF
     if ! v2ray_valid_uuid "$uuid"; then
     echo -e "\033[1;31mUUID no valido.\033[0m"
     pausa_v2ray
-    menu_usuarios_v2ray
     return
     fi
     echo -ne "${SSHPlus_DARK_GREEN}EXPIRA EN:${SCOLOR} "
@@ -2903,7 +2896,6 @@ EOF
     if [[ ! "$days" =~ ^[0-9]+$ ]]; then
     echo -e "\033[1;31mDias no validos.\033[0m"
     pausa_v2ray
-    menu_usuarios_v2ray
     return
     fi
     valid="$(date '+%Y-%m-%d' -d "+${days} days" 2>/dev/null || date '+%Y-%m-%d')"
@@ -2922,7 +2914,6 @@ EOF
     rm -f "$tmp"
     echo -e "\033[1;31mNo se pudo agregar el usuario al JSON.\033[0m"
     pausa_v2ray
-    menu_usuarios_v2ray
     return
     }
     if [[ "$V2SEL_CORE" == "xray" ]]; then
@@ -2943,7 +2934,6 @@ EOF
     echo -e "\033[1;31mEl JSON no paso la validacion de ${V2SEL_CORE}.\033[0m"
     sed -n '1,12p' /tmp/tunnelcore-xray-test.log 2>/dev/null
     pausa_v2ray
-    menu_usuarios_v2ray
     return
     fi
     mkdir -p /etc/SSHPlus
@@ -3104,13 +3094,13 @@ EOF
     fi
     fi
     pausa_v2ray
-    menu_usuarios_v2ray
+    return
     }
 
     renewusr() {
     clear
     v2ray_title "RENOVAR USUARIO V2RAY/XRAY"
-    [[ ! -s /etc/SSHPlus/RegV2ray ]] && echo -e "\033[1;31mNo hay usuarios V2RAY registrados.\033[0m" && pausa_v2ray && menu_usuarios_v2ray
+    [[ ! -s /etc/SSHPlus/RegV2ray ]] && echo -e "\033[1;31mNo hay usuarios V2RAY registrados.\033[0m" && pausa_v2ray && return
     local uuid_list user_list line_list user_sel days new_date
     mapfile -t uuid_list < <(awk -F'|' '{gsub(/^ +| +$/,"",$1); if($1!="") print $1}' /etc/SSHPlus/RegV2ray)
     mapfile -t user_list < <(awk -F'|' '{gsub(/^ +| +$/,"",$2); if($1!="") print $2}' /etc/SSHPlus/RegV2ray)
@@ -3123,11 +3113,10 @@ EOF
     v2ray_line
     echo -ne "${SSHPlus_CYAN}Opcion:${SCOLOR} "
     read user_sel
-    [[ "$user_sel" = "0" ]] && menu_usuarios_v2ray && return
+    [[ "$user_sel" = "0" ]] && return
     if [[ ! "$user_sel" =~ ^[0-9]+$ || "$user_sel" -lt 1 || "$user_sel" -gt "${#uuid_list[@]}" ]]; then
     echo -e "\033[1;31mOpcion no valida!\033[0m"
     pausa_v2ray
-    menu_usuarios_v2ray
     return
     fi
     echo -ne "${SSHPlus_DARK_GREEN}NUEVOS DIAS:${SCOLOR} "
@@ -3136,14 +3125,13 @@ EOF
     if [[ ! "$days" =~ ^[0-9]+$ ]]; then
     echo -e "\033[1;31mDias no validos.\033[0m"
     pausa_v2ray
-    menu_usuarios_v2ray
     return
     fi
     new_date="$(date '+%Y-%m-%d' -d "+${days} days" 2>/dev/null || date '+%Y-%m-%d')"
     sed -i "${line_list[$((user_sel-1))]}s#|[^|]*\$#| $new_date #" /etc/SSHPlus/RegV2ray
     echo -e "\033[1;32mUsuario renovado hasta: \033[1;37m$new_date\033[0m"
     pausa_v2ray
-    menu_usuarios_v2ray
+    return
     }
 
     menu_xray_xhttp() {
@@ -3157,7 +3145,7 @@ EOF
     selection=$(selection_fun 1)
     case ${selection} in
       1)instalar_xray_xhttp ;;
-      0)fun_v2raymanager ;;
+      0)return ;;
     esac
     else
     local xport="$(jq -r '.inbounds[0].port // "8443"' /usr/local/etc/xray/config.json 2>/dev/null)"
@@ -3183,7 +3171,7 @@ EOF
       5)reiniciar_xray_xhttp ;;
       6)editar_json_xhttp ;;
       7)desinstalar_xray_xhttp ;;
-      0)fun_v2raymanager ;;
+      0)return ;;
     esac
     fi
     }
@@ -3239,7 +3227,7 @@ EOF
     5)modificar_uuid_v2ray ;;
     6)modificar_path_v2ray ;;
     7)agregar_puerto_v2ray ;;
-    0)fun_v2raymanager ;;
+    0)return ;;
     esac
     }
 
