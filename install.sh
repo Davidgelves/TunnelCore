@@ -16,6 +16,13 @@ tc_install_line() {
     echo -e "${CYAN}============================================================${NC}"
 }
 
+tc_install_center() {
+    local text="$1" width=60 pad
+    pad=$(( (width - ${#text}) / 2 ))
+    [[ "$pad" -lt 0 ]] && pad=0
+    printf '%*s%s\n' "$pad" "" "$text"
+}
+
 tc_install_step() {
     echo -e "${YELLOW}[*] $1${NC}"
 }
@@ -23,15 +30,10 @@ tc_install_step() {
 TC_INSTALL_TOTAL=8
 TC_INSTALL_CURRENT=0
 tc_install_progress() {
-    local label="$1" percent filled empty i
+    local label="$1" percent
     TC_INSTALL_CURRENT=$((TC_INSTALL_CURRENT + 1))
     percent=$((TC_INSTALL_CURRENT * 100 / TC_INSTALL_TOTAL))
-    filled=$((percent / 5))
-    empty=$((20 - filled))
-    printf "${CYAN}["
-    for ((i=0; i<filled; i++)); do printf "#"; done
-    for ((i=0; i<empty; i++)); do printf "."; done
-    printf "] ${WHITE}%3s%%${NC} ${YELLOW}%s${NC}\n" "$percent" "$label"
+    printf "${WHITE}%3s%%${NC} ${YELLOW}%s${NC}\n" "$percent" "$label"
 }
 
 tc_install_ok() {
@@ -99,8 +101,11 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
 fi
 
 tc_install_line
-echo -e "${WHITE}                 Instalacion de dependencias                ${NC}"
-echo -e "${YELLOW}                 $(tc_install_os_name)                      ${NC}"
+printf '%b' "${WHITE}"
+tc_install_center "Instalacion de dependencias"
+printf '%b' "${YELLOW}"
+tc_install_center "$(tc_install_os_name)"
+printf '%b' "${NC}"
 tc_install_line
 
 if ! command -v apt-get >/dev/null 2>&1; then
@@ -198,7 +203,7 @@ echo ""
 tc_install_line
 echo -e "${GREEN}        TUNNELCORE INSTALADO CORRECTAMENTE                 ${NC}"
 tc_install_line
-echo -e "${WHITE}Para abrir el menu en cualquier momento, escriba:${NC} ${CYAN}menu${NC} ${WHITE}o${NC} ${CYAN}tunnelcore${NC}"
+echo -e "${WHITE}Para ingresar a la script en cualquier momento escriba:${NC} ${CYAN}\"menu\"${NC}"
 tc_install_line
 echo ""
 sleep 1
