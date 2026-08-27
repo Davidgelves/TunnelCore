@@ -86,8 +86,11 @@ tc_user_active_conns() {
 
     ssh_who="$(who 2>/dev/null | awk -v user="$u" '$1 == user {gsub(/[()]/, "", $5); if ($5 != "") seen[$5]=1} END {for (ip in seen) count++; print count+0}')"
     [[ ! "$ssh_who" =~ ^[0-9]+$ ]] && ssh_who=0
-    ssh_count="$ssh_tcp"
-    (( ssh_who > ssh_count )) && ssh_count="$ssh_who"
+    if (( ssh_who > 0 )); then
+        ssh_count="$ssh_who"
+    else
+        ssh_count="$ssh_tcp"
+    fi
 
     if [[ -e /etc/openvpn/openvpn-status.log ]]; then
         ovp="$(grep -E ,"$u", /etc/openvpn/openvpn-status.log 2>/dev/null | wc -l)"
