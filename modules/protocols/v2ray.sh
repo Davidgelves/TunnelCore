@@ -355,8 +355,12 @@ v2ray_install_wizard() {
     v2ray_opt "1" "RED TCP"
     v2ray_opt "2" "RED GRPC"
     v2ray_opt "3" "RED WEBSOCKET"
+    if [[ "$type" == "xray" && "$proto" == "vless" ]]; then
+    v2ray_opt "4" "RED XHTTP"
+    else
     v2ray_opt "4" "RED H2 (HTTP2)"
     v2ray_opt "5" "RED HYSTERIA2"
+    fi
     v2ray_line
     echo -ne "${SSHPlus_CYAN}Opcion:${SCOLOR} "
     read opt
@@ -364,8 +368,22 @@ v2ray_install_wizard() {
       1) network="tcp"; network_label="TCP" ;;
       2) network="grpc"; network_label="GRPC" ;;
       3) network="ws"; network_label="WEBSOCKET" ;;
-      4) network="h2"; network_label="H2 (HTTP2)" ;;
-      5) echo -e "\033[1;33mRED HYSTERIA2 aparece en el menu, pero aun no esta disponible aqui.\033[0m"; pausa_v2ray; return 1 ;;
+      4)
+        if [[ "$type" == "xray" && "$proto" == "vless" ]]; then
+        network="xhttp"; network_label="XHTTP"
+        else
+        network="h2"; network_label="H2 (HTTP2)"
+        fi
+        ;;
+      5)
+        if [[ "$type" == "xray" && "$proto" == "vless" ]]; then
+        echo -e "\033[1;31mOpcion no valida.\033[0m"
+        else
+        echo -e "\033[1;33mRED HYSTERIA2 aparece en el menu, pero aun no esta disponible aqui.\033[0m"
+        fi
+        pausa_v2ray
+        return 1
+        ;;
       *) echo -e "\033[1;31mOpcion no valida.\033[0m"; pausa_v2ray; return 1 ;;
     esac
 
@@ -375,7 +393,7 @@ v2ray_install_wizard() {
     read host
     host="$(printf '%s' "$host" | tr -d '"\\[:space:]')"
     fi
-    if [[ "$network" == "ws" || "$network" == "h2" ]]; then
+    if [[ "$network" == "ws" || "$network" == "h2" || "$network" == "xhttp" ]]; then
     default_path="$(v2ray_random_path)"
     v2ray_wizard_screen "$name" "$type_label" "$port" "$proto_label" "$network_label" "$host"
     echo -ne "${SSHPlus_DARK_GREEN}PATH [${default_path}]:${SCOLOR} "
