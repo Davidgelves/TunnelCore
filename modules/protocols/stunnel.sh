@@ -24,6 +24,10 @@ tc_stunnel_status_mark() {
     fi
 }
 
+tc_stunnel_has_ports() {
+    [[ -f "$TC_STUNNEL_CONF" ]] && grep -qE "^[[:space:]]*accept[[:space:]]*=" "$TC_STUNNEL_CONF" 2>/dev/null
+}
+
 tc_stunnel_gen_cert() {
     mkdir -p /etc/stunnel
     if [[ ! -f "$TC_STUNNEL_CERT" ]]; then
@@ -111,6 +115,12 @@ tc_stunnel_add_port() {
             tc_msg_err "El puerto $port ya está configurado en Stunnel."
             continue
         fi
+        if tc_port_in_use "$port"; then
+            tc_msg_err "El puerto $port ya esta siendo usado por otro servicio. Elija otro puerto o libere ese puerto."
+            continue
+        fi
+
+        tc_msg_ok "Puerto $port disponible."
         break
     done
 
@@ -239,9 +249,13 @@ tc_stunnel_menu() {
         tc_line
 
         tc_opt "1" "AGREGAR PUERTO SSL / REDIRECCIÓN LOCAL"
-        tc_opt "2" "ELIMINAR PUERTO SSL"
-        tc_opt "3" "REINICIAR SERVICIO STUNNEL"
-        tc_opt "4" "DETENER / DESACTIVAR STUNNEL"
+        if tc_stunnel_has_ports; then
+            tc_opt "2" "ELIMINAR PUERTO SSL"
+            tc_opt "3" "REINICIAR SERVICIO STUNNEL"
+            tc_opt "4" "DETENER / DESACTIVAR STUNNEL"
+        else
+            tc_msg_warn "Active SSL Tunnel agregando un puerto SSL para habilitar las demas opciones."
+        fi
         tc_line
         tc_opt "0" "$(_t 'back')"
         tc_line
@@ -251,13 +265,32 @@ tc_stunnel_menu() {
 
         case "$opt" in
             1|01) tc_stunnel_add_port ;;
-            2|02) tc_stunnel_del_port ;;
-            3|03)
-                systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
-                tc_msg_ok "Servicio Stunnel4 reiniciado."
-                tc_pause
+            2|02)
+                if tc_stunnel_has_ports; then
+                    tc_stunnel_del_port
+                else
+                    tc_msg_warn "Primero active SSL Tunnel agregando un puerto."
+                    sleep 1
+                fi
                 ;;
-            4|04) tc_stunnel_stop ;;
+            3|03)
+                if tc_stunnel_has_ports; then
+                    systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
+                    tc_msg_ok "Servicio Stunnel4 reiniciado."
+                    tc_pause
+                else
+                    tc_msg_warn "Primero active SSL Tunnel agregando un puerto."
+                    sleep 1
+                fi
+                ;;
+            4|04)
+                if tc_stunnel_has_ports; then
+                    tc_stunnel_stop
+                else
+                    tc_msg_warn "Primero active SSL Tunnel agregando un puerto."
+                    sleep 1
+                fi
+                ;;
             0|00) break ;;
             *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
         esac
