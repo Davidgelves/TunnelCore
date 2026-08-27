@@ -3282,7 +3282,7 @@ EOF
                 continue
             fi
 
-            [[ "$service_on" = "1" ]] && toggle_status="ON" || toggle_status="OFF"
+            [[ "$service_on" = "1" ]] && toggle_status="\033[1;32mo\033[0m" || toggle_status="\033[1;31mx\033[0m"
             v2ray_title "CONFIGURACION V2RAY / XRAY"
             v2ray_opt "1" "ADMINISTRADOR DE USUARIOS V2RAY/XRAY"
             v2ray_opt "2" "AGREGAR PROTOCOLO V2RAY/XRAY"
@@ -3291,7 +3291,7 @@ EOF
             v2ray_opt "5" "EDITAR CONFIGURACION JSON (nano)"
             v2ray_opt "6" "ESTADO DEL SERVICIO"
             v2ray_opt "7" "REINICIAR SERVICIO"
-            v2ray_opt "8" "INICIAR/DETENER SERVICIO [$toggle_status]"
+            v2ray_opt "8" "INICIAR/DETENER SERVICIO" "  $toggle_status"
             v2ray_opt "9" "VOLVER A CONFIGURAR"
             v2ray_opt "10" "DESINTALAR V2RAY"
             v2ray_opt "0" "VOLVER"
