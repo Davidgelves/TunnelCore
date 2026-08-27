@@ -238,61 +238,71 @@ tc_stunnel_stop() {
     tc_pause
 }
 
+tc_stunnel_activate() {
+    if tc_stunnel_has_ports; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl enable stunnel4 >/dev/null 2>&1 || true
+        systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
+
+        if tc_stunnel_is_running; then
+            tc_msg_ok "SSL Tunnel activado correctamente."
+        else
+            tc_msg_err "No se pudo activar SSL Tunnel. Revise que los puertos configurados no esten ocupados."
+        fi
+        tc_pause
+    else
+        tc_stunnel_add_port
+    fi
+}
+
 # ── MENÚ PRINCIPAL STUNNEL ────────────────────────────────────
 tc_stunnel_menu() {
     while true; do
         tc_clear
-        tc_title "GESTIÓN DE STUNNEL (SSL TUNNEL) $(tc_stunnel_status_mark)"
+        tc_title "STUNNEL (SSL TUNNEL) $(tc_stunnel_status_mark)"
 
-        printf '%bREDIRECCIONES SSL ACTIVAS:%b\n' "$TC_DARK_GREEN" "$TC_NC"
-        tc_stunnel_list_active_ports
-        tc_line
+        if ! tc_stunnel_is_running; then
+            tc_opt "1" "ACTIVAR STUNNEL (SSL TUNNEL)"
+            tc_line
+            tc_opt "0" "$(_t 'back')"
+            tc_line
 
-        tc_opt "1" "AGREGAR PUERTO SSL / REDIRECCIÓN LOCAL"
-        if tc_stunnel_has_ports; then
+            tc_prompt
+            read -r opt
+
+            case "$opt" in
+                1|01) tc_stunnel_activate ;;
+                0|00) break ;;
+                *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
+            esac
+        else
+            printf '%bREDIRECCIONES SSL ACTIVAS:%b\n' "$TC_DARK_GREEN" "$TC_NC"
+            tc_stunnel_list_active_ports
+            tc_line
+
+            tc_opt "1" "AGREGAR PUERTO SSL / REDIRECCIÓN LOCAL"
             tc_opt "2" "ELIMINAR PUERTO SSL"
             tc_opt "3" "REINICIAR SERVICIO STUNNEL"
             tc_opt "4" "DETENER / DESACTIVAR STUNNEL"
-        else
-            tc_msg_warn "Active SSL Tunnel agregando un puerto SSL para habilitar las demas opciones."
-        fi
-        tc_line
-        tc_opt "0" "$(_t 'back')"
-        tc_line
+            tc_line
+            tc_opt "0" "$(_t 'back')"
+            tc_line
 
-        tc_prompt
-        read -r opt
+            tc_prompt
+            read -r opt
 
-        case "$opt" in
-            1|01) tc_stunnel_add_port ;;
-            2|02)
-                if tc_stunnel_has_ports; then
-                    tc_stunnel_del_port
-                else
-                    tc_msg_warn "Primero active SSL Tunnel agregando un puerto."
-                    sleep 1
-                fi
-                ;;
-            3|03)
-                if tc_stunnel_has_ports; then
+            case "$opt" in
+                1|01) tc_stunnel_add_port ;;
+                2|02) tc_stunnel_del_port ;;
+                3|03)
                     systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
                     tc_msg_ok "Servicio Stunnel4 reiniciado."
                     tc_pause
-                else
-                    tc_msg_warn "Primero active SSL Tunnel agregando un puerto."
-                    sleep 1
-                fi
-                ;;
-            4|04)
-                if tc_stunnel_has_ports; then
-                    tc_stunnel_stop
-                else
-                    tc_msg_warn "Primero active SSL Tunnel agregando un puerto."
-                    sleep 1
-                fi
-                ;;
-            0|00) break ;;
-            *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
-        esac
+                    ;;
+                4|04) tc_stunnel_stop ;;
+                0|00) break ;;
+                *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
+            esac
+        fi
     done
 }
