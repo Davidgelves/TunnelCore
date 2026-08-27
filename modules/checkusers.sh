@@ -209,6 +209,10 @@ class CheckUserHandler(http.server.BaseHTTPRequestHandler):
         user = unquote(user).strip()
         users = load_users()
 
+        if path == "" and not user:
+            self.respond_text(200, str(len(users)))
+            return
+
         if path.lower() == "checkuser" and not user:
             self.respond_text(200, "")
             return
