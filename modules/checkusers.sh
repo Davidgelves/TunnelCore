@@ -210,7 +210,8 @@ class CheckUserHandler(http.server.BaseHTTPRequestHandler):
         users = load_users()
 
         if path == "" and not user:
-            self.respond_text(200, str(len(users)))
+            online = [item for item in users if item["online"] > 0]
+            self.respond_text(200, str(len(online)))
             return
 
         if path.lower() == "checkuser" and not user:
