@@ -1,9 +1,6 @@
 #!/bin/bash
-# ═══════════════════════════════════════════════════════════════
-#  TunnelCore — modules/checkusers.sh
-#  API CheckUser para aplicaciones VPN Android (HTTP JSON)
-#  Autor: J DAVID AG
-# ═══════════════════════════════════════════════════════════════
+# TunnelCore - modules/checkusers.sh
+# API CheckUser compatible para aplicaciones VPN Android.
 
 TC_CHECK_DIR="/etc/tunnelcore/checkuser"
 TC_CHECK_PY="${TC_CHECK_DIR}/checkuser_server.py"
@@ -16,26 +13,32 @@ tc_checkuser_is_running() {
 
 tc_checkuser_status_mark() {
     if tc_checkuser_is_running; then
-        printf '%b[ON]%b' "$TC_GREEN" "$TC_NC"
-    elif [[ -f "$TC_CHECK_CONF" ]]; then
-        printf '%b[OFF]%b' "$TC_RED" "$TC_NC"
+        printf '%bo%b' "$TC_GREEN" "$TC_NC"
     else
-        printf '%b[NO INSTALADO]%b' "$TC_YELLOW" "$TC_NC"
+        printf '%bx%b' "$TC_RED" "$TC_NC"
     fi
+}
+
+tc_checkuser_current_port() {
+    local cur_port="5000"
+    if [[ -f "$TC_CHECK_CONF" ]]; then
+        cur_port="$(grep -oE '[0-9]+' "$TC_CHECK_CONF" | head -1 || echo "5000")"
+    fi
+    echo "${cur_port:-5000}"
 }
 
 tc_checkuser_write_server() {
     mkdir -p "$TC_CHECK_DIR"
-    cat > "$TC_CHECK_PY" <<'EOF'
+    cat > "$TC_CHECK_PY" <<'PYEOF'
 #!/usr/bin/env python3
-# encoding: utf-8
 import http.server
-import socketserver
 import json
-import sys
 import os
+import socketserver
 import subprocess
+import sys
 from datetime import datetime
+from urllib.parse import parse_qs, unquote, urlparse
 
 PORT = 5000
 if len(sys.argv) > 1:
@@ -49,20 +52,20 @@ DB_PATH = "/etc/tunnelcore/users.db"
 
 class CheckUserHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        # Endpoint: /checkUser?user=USERNAME o /checkUser/USERNAME
-        path = self.path.split("?")[0].strip("/")
+        parsed = urlparse(self.path)
+        path = parsed.path.strip("/")
         user = ""
 
-        if "?" in self.path:
-            query = self.path.split("?")[1]
-            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
-            user = params.get("user", "")
+        if parsed.query:
+            params = parse_qs(parsed.query)
+            user = params.get("user", [""])[0] or params.get("usuario", [""])[0]
 
         if not user and "/" in path:
-            user = path.split("/")[1]
+            user = path.split("/", 1)[1]
         elif not user and path and path != "checkUser":
             user = path
 
+        user = unquote(user).strip()
         if not user:
             self._respond(400, {"error": "Missing user parameter"})
             return
@@ -78,48 +81,85 @@ class CheckUserHandler(http.server.BaseHTTPRequestHandler):
             return None
 
         today = datetime.now()
+        with open(DB_PATH, "r", encoding="utf-8", errors="replace") as db:
+            for line in db:
+                parts = [part.strip() for part in line.split("|")]
+                if len(parts) < 3 or parts[0] != user:
+                    continue
 
-        with open(DB_PATH, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                parts = [p.strip() for p in line.split("|")]
-                if len(parts) >= 3 and parts[0] == user:
-                    expiry_str = parts[2]
-                    limit_str = parts[3] if len(parts) >= 4 else "1"
+                expiry_str = parts[1]
+                limit_str = parts[2]
+                limit_connection = int(limit_str) if limit_str.isdigit() else 1
+                active_connections = self._active_connections(user)
+                expiration_label = expiry_str
+                expiration_days = 0
+                is_expired = False
 
-                    # Conexiones activas
+                if expiry_str.startswith("test:"):
                     try:
-                        p = subprocess.run(
-                            ["ps", "-u", user],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True,
-                        )
-                        act_conns = sum(1 for ln in p.stdout.splitlines() if "sshd" in ln or "dropbear" in ln)
+                        _, ts, _minutes = expiry_str.split(":", 2)
+                        left = int(ts) - int(datetime.now().timestamp())
+                        is_expired = left <= 0
+                        mins_left = max(0, (left + 59) // 60)
+                        expiration_label = f"{mins_left} Minutos"
                     except Exception:
-                        act_conns = 0
-
-                    days_left = 0
-                    is_expired = False
+                        pass
+                else:
                     try:
                         exp_dt = datetime.strptime(expiry_str, "%Y-%m-%d")
                         diff = (exp_dt - today).days + 1
-                        days_left = max(0, diff)
+                        expiration_days = max(0, diff)
                         is_expired = diff <= 0
                     except Exception:
                         pass
 
-                    return {
-                        "username": user,
-                        "count_connection": act_conns,
-                        "limit_connection": int(limit_str) if limit_str.isdigit() else 1,
-                        "expiration_date": expiry_str,
-                        "expiration_days": days_left,
-                        "is_active": not is_expired,
-                    }
+                return {
+                    "username": user,
+                    "user": user,
+                    "count_connection": active_connections,
+                    "online": active_connections,
+                    "limit_connection": limit_connection,
+                    "limit": limit_connection,
+                    "expiration_date": expiry_str,
+                    "expiration": expiration_label,
+                    "expiration_days": expiration_days,
+                    "is_active": not is_expired,
+                    "status": "active" if not is_expired else "expired",
+                }
         return None
 
+    def _active_connections(self, user):
+        try:
+            who = subprocess.run(["who"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            seen = set()
+            for line in who.stdout.splitlines():
+                cols = line.split()
+                if cols and cols[0] == user:
+                    remote = cols[-1].strip("()")
+                    if remote:
+                        seen.add(remote)
+            if seen:
+                return len(seen)
+        except Exception:
+            pass
+
+        total = 0
+        try:
+            sshd = subprocess.run(["ps", "-o", "user=", "-C", "sshd"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            total += sum(1 for line in sshd.stdout.splitlines() if line.strip() == user)
+        except Exception:
+            pass
+
+        try:
+            psu = subprocess.run(["ps", "-u", user, "-o", "comm="], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            total += sum(1 for line in psu.stdout.splitlines() if line.strip() == "dropbear")
+        except Exception:
+            pass
+
+        return total
+
     def _respond(self, code, data):
-        body = json.dumps(data).encode("utf-8")
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -127,8 +167,8 @@ class CheckUserHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def log_message(self, format, *args):
-        pass
+    def log_message(self, _format, *args):
+        return
 
 
 def main():
@@ -139,7 +179,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-EOF
+PYEOF
     chmod +x "$TC_CHECK_PY"
 }
 
@@ -147,7 +187,6 @@ tc_checkuser_start() {
     local port="${1:-5000}"
     mkdir -p "$TC_CHECK_DIR"
     tc_require_cmd "python3" "python3"
-
     tc_checkuser_write_server
 
     cat > "$TC_CHECK_CONF" <<EOF
@@ -180,86 +219,128 @@ tc_checkuser_stop() {
     systemctl disable tunnelcore-checkuser >/dev/null 2>&1 || true
 }
 
+tc_checkuser_uninstall() {
+    tc_checkuser_stop
+    rm -f "$TC_CHECK_SERVICE"
+    rm -rf "$TC_CHECK_DIR"
+    systemctl daemon-reload >/dev/null 2>&1 || true
+}
+
+tc_checkuser_install_prompt() {
+    local port
+    printf '%bPuerto CheckUser [Enter = 5000]:%b ' "$TC_DARK_GREEN" "$TC_NC"
+    read -r port
+    [[ -z "$port" ]] && port="5000"
+
+    if ! tc_valid_port "$port"; then
+        tc_msg_err "Puerto no valido."
+        tc_pause
+        return
+    fi
+
+    if tc_port_in_use "$port" && [[ "$(tc_checkuser_current_port)" != "$port" ]]; then
+        tc_msg_err "El puerto $port ya esta siendo usado por otro servicio."
+        tc_pause
+        return
+    fi
+
+    tc_checkuser_start "$port"
+    if tc_checkuser_is_running; then
+        tc_msg_ok "CheckUser instalado y activo en puerto $port."
+    else
+        tc_msg_err "Error al iniciar CheckUser."
+    fi
+    tc_pause
+}
+
 tc_checkuser_menu() {
     while true; do
         tc_clear
-        local cur_port="5000"
-        [[ -f "$TC_CHECK_CONF" ]] && cur_port="$(grep -oE '[0-9]+' "$TC_CHECK_CONF" || echo "5000")"
+        local cur_port ip
+        cur_port="$(tc_checkuser_current_port)"
+        ip="$(tc_public_ip)"
 
-        tc_title "GESTIÓN CHECKUSERS (API ANDROID) $(tc_checkuser_status_mark)"
-
-        if ! tc_checkuser_is_running; then
-            tc_opt "1" "ACTIVAR CHECKUSER (Puerto 5000)"
-            tc_opt "2" "ACTIVAR EN PUERTO PERSONALIZADO"
-            tc_line
-            tc_opt "0" "VOLVER"
-            tc_line
-            tc_prompt
-            read -r opt
-            case "$opt" in
-                1|01)
-                    tc_checkuser_start "5000"
-                    if tc_checkuser_is_running; then
-                        tc_msg_ok "CheckUser API activa en puerto 5000."
-                    else
-                        tc_msg_err "Error al iniciar CheckUser."
-                    fi
-                    tc_pause
-                    ;;
-                2|02)
-                    printf '%bPuerto de escucha CheckUser [1-65535]:%b ' "$TC_DARK_GREEN" "$TC_NC"
-                    read -r port
-                    if tc_valid_port "$port"; then
-                        tc_checkuser_start "$port"
-                        tc_msg_ok "CheckUser activo en puerto $port."
-                    else
-                        tc_msg_err "Puerto no válido."
-                    fi
-                    tc_pause
-                    ;;
-                0|00) break ;;
-                *) tc_msg_err "Opción no válida."; sleep 1 ;;
-            esac
-        else
-            local ip
-            ip="$(tc_public_ip)"
+        tc_title "VERIFICACION CHECKUSER $(tc_checkuser_status_mark)"
+        if [[ -f "$TC_CHECK_CONF" ]]; then
             printf '%bPUERTO:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$cur_port" "$TC_NC"
             printf '%bURL API:%b %bhttp://%s:%s/checkUser?user=USUARIO%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$ip" "$cur_port" "$TC_NC"
             tc_line
-            tc_opt "1" "DESACTIVAR CHECKUSER"
-            tc_opt "2" "CAMBIAR PUERTO"
-            tc_opt "3" "REINICIAR SERVICIO"
-            tc_line
-            tc_opt "0" "VOLVER"
-            tc_line
-            tc_prompt
-            read -r opt
-            case "$opt" in
-                1|01)
-                    tc_checkuser_stop
-                    tc_msg_ok "CheckUser detenido."
-                    tc_pause
-                    ;;
-                2|02)
-                    printf '%bNuevo puerto:%b ' "$TC_DARK_GREEN" "$TC_NC"
-                    read -r new_p
-                    if tc_valid_port "$new_p"; then
-                        tc_checkuser_start "$new_p"
-                        tc_msg_ok "Puerto actualizado a $new_p."
-                    else
-                        tc_msg_err "Puerto no válido."
-                    fi
-                    tc_pause
-                    ;;
-                3|03)
+        fi
+
+        tc_opt "1" "INSTALAR CHECKUSER"
+        tc_opt "2" "ESTADO DEL SERVICIO"
+        tc_opt "3" "REINICIAR SERVICIO"
+        tc_opt "4" "INICIAR/PARAR CHECKUSER"
+        tc_opt "5" "LOG CHECKUSER"
+        tc_opt "6" "LOG EN TIEMPO REAL"
+        tc_opt "7" "LIMPIAR LOG"
+        tc_opt "8" "DESINSTALAR CHECKUSER"
+        tc_line
+        tc_opt "0" "VOLVER"
+        tc_line
+        tc_prompt
+        read -r opt
+
+        case "$opt" in
+            1|01) tc_checkuser_install_prompt ;;
+            2|02)
+                tc_clear
+                tc_title "ESTADO DEL SERVICIO"
+                systemctl status tunnelcore-checkuser --no-pager 2>/dev/null || tc_msg_warn "CheckUser no esta instalado."
+                tc_pause
+                ;;
+            3|03)
+                if [[ -f "$TC_CHECK_CONF" ]]; then
                     systemctl restart tunnelcore-checkuser >/dev/null 2>&1
                     tc_msg_ok "CheckUser reiniciado."
-                    tc_pause
-                    ;;
-                0|00) break ;;
-                *) tc_msg_err "Opción no válida."; sleep 1 ;;
-            esac
-        fi
+                else
+                    tc_msg_warn "Primero instale CheckUser."
+                fi
+                tc_pause
+                ;;
+            4|04)
+                if tc_checkuser_is_running; then
+                    tc_checkuser_stop
+                    tc_msg_ok "CheckUser detenido."
+                elif [[ -f "$TC_CHECK_CONF" ]]; then
+                    tc_checkuser_start "$cur_port"
+                    tc_msg_ok "CheckUser iniciado."
+                else
+                    tc_msg_warn "Primero instale CheckUser."
+                fi
+                tc_pause
+                ;;
+            5|05)
+                tc_clear
+                tc_title "LOG CHECKUSER"
+                journalctl -u tunnelcore-checkuser -n 80 --no-pager 2>/dev/null || tc_msg_warn "No hay logs disponibles."
+                tc_pause
+                ;;
+            6|06)
+                tc_clear
+                tc_title "LOG EN TIEMPO REAL"
+                journalctl -fu tunnelcore-checkuser 2>/dev/null
+                tc_pause
+                ;;
+            7|07)
+                journalctl --rotate >/dev/null 2>&1 || true
+                journalctl --vacuum-time=1s >/dev/null 2>&1 || true
+                tc_msg_ok "Log CheckUser limpiado."
+                tc_pause
+                ;;
+            8|08)
+                printf '%bConfirma que quiere desinstalar CheckUser? [S/N]:%b ' "$TC_YELLOW" "$TC_NC"
+                read -r confirm
+                if [[ "$confirm" =~ ^[sS]$ ]]; then
+                    tc_checkuser_uninstall
+                    tc_msg_ok "CheckUser desinstalado."
+                else
+                    tc_msg_warn "Operacion cancelada."
+                fi
+                tc_pause
+                ;;
+            0|00) break ;;
+            *) tc_msg_err "Opcion no valida."; sleep 1 ;;
+        esac
     done
 }
-
