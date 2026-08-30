@@ -152,6 +152,11 @@ v2ray_selected_unit() {
     local port="$1" core="${2:-v2ray}"
     [[ "$core" == "xray" ]] && echo "xray@${port}" || echo "v2ray@${port}"
 }
+v2ray_core_for_port() {
+    local port="$1" core
+    core="$(awk -F'|' -v p="$port" '$1 == p {print $10; exit}' /etc/SSHPlus/v2ray/configs.db 2>/dev/null)"
+    [[ "$core" == "xray" ]] && echo "xray" || echo "v2ray"
+}
 v2ray_ensure_template_service() {
     mkdir -p /etc/systemd/system
     cat >/etc/systemd/system/v2ray@.service <<'EOF'
@@ -2607,8 +2612,8 @@ EOF
     if /usr/local/bin/xray run -test -config "$port_cfg" >"$test_log" 2>&1; then
     v2ray_ensure_template_service
     systemctl disable --now xray >/dev/null 2>&1 || true
-    systemctl restart "v2ray@${port}" >/dev/null 2>&1
-    systemctl enable "v2ray@${port}" >/dev/null 2>&1
+    systemctl restart "xray@${port}" >/dev/null 2>&1
+    systemctl enable "xray@${port}" >/dev/null 2>&1
     else
     echo -e "\033[1;31mEl config.json generado no paso la validacion de Xray.\033[0m"
     [[ -s "$backup_file" ]] && cp "$backup_file" "$cfg"
@@ -2621,7 +2626,7 @@ EOF
     fi
     mkdir -p /etc/SSHPlus/v2ray
     grep -v "^${port}|" /etc/SSHPlus/v2ray/configs.db 2>/dev/null > /etc/SSHPlus/v2ray/configs.db.tmp || true
-    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$port" "$cfg_name" "$proto" "$network" "$link_tls" "$domain" "$path" "$ext_port" >> /etc/SSHPlus/v2ray/configs.db.tmp
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$port" "$cfg_name" "$proto" "$network" "$link_tls" "$domain" "$path" "$ext_port" "$sni" "xray" >> /etc/SSHPlus/v2ray/configs.db.tmp
     mv -f /etc/SSHPlus/v2ray/configs.db.tmp /etc/SSHPlus/v2ray/configs.db
     grep -q "$uuid" /etc/SSHPlus/RegV2ray 2>/dev/null || echo "  $uuid | $user | $exp " >> /etc/SSHPlus/RegV2ray
 
@@ -2801,7 +2806,7 @@ EOF
     }
 
     v2ray_services_status() {
-    local port owner
+    local port owner core unit
     clear
     v2ray_title "ESTADO DEL SERVICIO"
     if [[ -z "$(v2ray_ports_configured)" ]]; then
@@ -2813,19 +2818,21 @@ EOF
     return
     fi
     for port in $(v2ray_ports_configured); do
+    core="$(v2ray_core_for_port "$port")"
+    unit="$(v2ray_selected_unit "$port" "$core")"
     v2ray_line
-    echo -e "\033[1;33mEstado del servicio v2ray@${port}\033[0m"
+    echo -e "\033[1;33mEstado del servicio ${unit}\033[0m"
     v2ray_line
-    systemctl status "v2ray@${port}" --no-pager 2>/dev/null || systemctl status "xray@${port}" --no-pager 2>/dev/null || true
-    if systemctl is-active "v2ray@${port}" >/dev/null 2>&1; then
-    printf "\033[1;32mv2ray@%s ACTIVO\033[0m\n" "$port"
+    systemctl status "$unit" --no-pager 2>/dev/null || true
+    if systemctl is-active "$unit" >/dev/null 2>&1; then
+    printf "\033[1;32m%s ACTIVO\033[0m\n" "$unit"
     else
-    printf "\033[1;31mv2ray@%s DETENIDO\033[0m\n" "$port"
+    printf "\033[1;31m%s DETENIDO\033[0m\n" "$unit"
     fi
     owner="$(v2ray_port_owner "$port")"
     [[ -n "$owner" ]] && printf "\033[1;33mPuerto %s:\033[0m \033[1;37m%s\033[0m\n" "$port" "$owner"
-    journalctl -u "v2ray@${port}" -n 3 --no-pager 2>/dev/null | sed 's/^/  /'
-    journalctl -u "v2ray@${port}" -n 20 --no-pager 2>/dev/null | grep -q 'TLS handshake error.*EOF' && echo -e "\033[1;33mAviso: llega trafico al puerto, pero el cliente corta durante TLS. Revise SNI/Host o active Allow Insecure en la app.\033[0m"
+    journalctl -u "$unit" -n 3 --no-pager 2>/dev/null | sed 's/^/  /'
+    journalctl -u "$unit" -n 20 --no-pager 2>/dev/null | grep -q 'TLS handshake error.*EOF' && echo -e "\033[1;33mAviso: llega trafico al puerto, pero el cliente corta durante TLS. Revise SNI/Host o active Allow Insecure en la app.\033[0m"
     done
     v2ray_line
     pausa_v2ray
@@ -2833,16 +2840,18 @@ EOF
     }
 
     v2ray_restart_all_services() {
-    local port failed=0
+    local port failed=0 core unit
     clear
     v2ray_title "REINICIAR SERVICIO"
     v2ray_ensure_template_service
     for port in $(v2ray_ports_configured); do
-    if systemctl restart "v2ray@${port}" >/dev/null 2>&1; then
-    systemctl enable "v2ray@${port}" >/dev/null 2>&1
-    printf "\033[1;32mv2ray@%s reiniciado OK\033[0m\n" "$port"
+    core="$(v2ray_core_for_port "$port")"
+    unit="$(v2ray_selected_unit "$port" "$core")"
+    if systemctl restart "$unit" >/dev/null 2>&1; then
+    systemctl enable "$unit" >/dev/null 2>&1
+    printf "\033[1;32m%s reiniciado OK\033[0m\n" "$unit"
     else
-    printf "\033[1;31mv2ray@%s fallo al reiniciar\033[0m\n" "$port"
+    printf "\033[1;31m%s fallo al reiniciar\033[0m\n" "$unit"
     failed=1
     fi
     done
@@ -2852,10 +2861,12 @@ EOF
     }
 
     v2ray_toggle_all_services() {
-    local port any_on=0 action
+    local port any_on=0 action core unit
     clear
     for port in $(v2ray_ports_configured); do
-    systemctl is-active "v2ray@${port}" >/dev/null 2>&1 && any_on=1
+    core="$(v2ray_core_for_port "$port")"
+    unit="$(v2ray_selected_unit "$port" "$core")"
+    systemctl is-active "$unit" >/dev/null 2>&1 && any_on=1
     done
     if [[ "$any_on" = "1" ]]; then
     action="stop"
@@ -2865,8 +2876,10 @@ EOF
     fi
     v2ray_title "INICIAR/PARAR SERVICIOS"
     for port in $(v2ray_ports_configured); do
-    systemctl "$action" "v2ray@${port}" >/dev/null 2>&1
-    printf "\033[1;37mv2ray@%s -> %s\033[0m\n" "$port" "$action"
+    core="$(v2ray_core_for_port "$port")"
+    unit="$(v2ray_selected_unit "$port" "$core")"
+    systemctl "$action" "$unit" >/dev/null 2>&1
+    printf "\033[1;37m%s -> %s\033[0m\n" "$unit" "$action"
     done
     pausa_v2ray
     return
@@ -2879,9 +2892,9 @@ EOF
     clear
     v2ray_title "LOG XRAY ${V2SEL_PORT}"
     case "$mode" in
-      live) journalctl -u "v2ray@${V2SEL_PORT}" -f ;;
-      all) journalctl -u "v2ray@${V2SEL_PORT}" --no-pager ;;
-      *) journalctl -u "v2ray@${V2SEL_PORT}" -n 80 --no-pager ;;
+      live) journalctl -u "$(v2ray_selected_unit "$V2SEL_PORT" "$V2SEL_CORE")" -f ;;
+      all) journalctl -u "$(v2ray_selected_unit "$V2SEL_PORT" "$V2SEL_CORE")" --no-pager ;;
+      *) journalctl -u "$(v2ray_selected_unit "$V2SEL_PORT" "$V2SEL_CORE")" -n 80 --no-pager ;;
     esac
     pausa_v2ray
     return
