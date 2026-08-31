@@ -259,14 +259,14 @@ v2ray_normalize_inbound_json() {
       .domain = "local" |
       .streamSettings.security = $tls |
       (if $tls == "tls" then
-        .streamSettings.tlsSettings = {
+        .streamSettings.tlsSettings = ({
           certificates: [
             {
               certificateFile: "/root/TunnelCore/certificados/local/local.crt",
               keyFile: "/root/TunnelCore/certificados/local/local.key"
             }
           ]
-        }
+        } + (if $network == "xhttp" then {alpn: ["h2"]} else {} end))
       else
         del(.streamSettings.tlsSettings)
       end) |
