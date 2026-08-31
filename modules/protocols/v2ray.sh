@@ -3088,10 +3088,14 @@ EOF
     fi
     enc_path="$(v2ray_urlencode_path "$path")"
     if [[ "$proto" == "vmess" ]]; then
-    local tls_value=""
+    local tls_value="" json_alpn="" json_fp=""
     [[ "$link_tls" == "tls" ]] && tls_value="tls"
+    if [[ "$link_tls" == "tls" ]]; then
+    json_fp="chrome"
+    [[ "$network" == "xhttp" ]] && json_alpn="h2"
+    fi
     vmess_json=$(cat <<EOF
-{"v":"2","ps":"${nick}","add":"${add_host}","port":"${ext_port}","id":"${uuid}","aid":"0","scy":"auto","net":"${network}","type":"","host":"${host_header}","path":"${path}","tls":"${tls_value}","sni":"${sni}","alpn":"","fp":"","allowInsecure":"${allow_insecure}"}
+{"v":"2","ps":"${nick}","add":"${add_host}","port":"${ext_port}","id":"${uuid}","aid":"0","scy":"auto","net":"${network}","type":"","host":"${host_header}","path":"${path}","tls":"${tls_value}","sni":"${sni}","alpn":"${json_alpn}","fp":"${json_fp}","allowInsecure":"${allow_insecure}"}
 EOF
 )
     vmess_b64="$(printf '%s' "$vmess_json" | base64 -w 0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
@@ -3185,11 +3189,11 @@ EOF
           )
           + (
             if $security == "tls" then {
-              tlsSettings: {
+              tlsSettings: ({
                 allowInsecure: $allowInsecure,
                 fingerprint: "chrome",
                 serverName: $sni
-              }
+              } + (if $network == "xhttp" then {alpn: ["h2"]} else {} end))
             } else {} end
           ))
         }
@@ -3254,11 +3258,11 @@ EOF
           )
           + (
             if $security == "tls" then {
-              tlsSettings: {
+              tlsSettings: ({
                 allowInsecure: $allowInsecure,
                 fingerprint: "chrome",
                 serverName: $sni
-              }
+              } + (if $network == "xhttp" then {alpn: ["h2"]} else {} end))
             } else {} end
           ))
         }
