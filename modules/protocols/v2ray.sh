@@ -285,6 +285,12 @@ v2ray_normalize_inbound_json() {
         .streamSettings.grpcSettings = ((.streamSettings.grpcSettings // {}) + {
           serviceName: $path
         })
+      else . end) |
+      (if $network == "xhttp" then
+        .streamSettings.xhttpSettings = ((.streamSettings.xhttpSettings // {}) + {
+          path: $path,
+          mode: (.streamSettings.xhttpSettings.mode // "auto")
+        })
       else . end)
     ' "$inbound_json" > "$tmp" && mv "$tmp" "$inbound_json"
 }
@@ -363,7 +369,7 @@ v2ray_install_wizard() {
     v2ray_opt "1" "RED TCP"
     v2ray_opt "2" "RED GRPC"
     v2ray_opt "3" "RED WEBSOCKET"
-    if [[ "$type" == "xray" && "$proto" == "vless" ]]; then
+    if [[ "$type" == "xray" && ( "$proto" == "vless" || "$proto" == "vmess" ) ]]; then
     v2ray_opt "4" "RED XHTTP"
     else
     v2ray_opt "4" "RED H2 (HTTP2)"
@@ -377,14 +383,14 @@ v2ray_install_wizard() {
       2) network="grpc"; network_label="GRPC" ;;
       3) network="ws"; network_label="WEBSOCKET" ;;
       4)
-        if [[ "$type" == "xray" && "$proto" == "vless" ]]; then
+        if [[ "$type" == "xray" && ( "$proto" == "vless" || "$proto" == "vmess" ) ]]; then
         network="xhttp"; network_label="XHTTP"
         else
         network="h2"; network_label="H2 (HTTP2)"
         fi
         ;;
       5)
-        if [[ "$type" == "xray" && "$proto" == "vless" ]]; then
+        if [[ "$type" == "xray" && ( "$proto" == "vless" || "$proto" == "vmess" ) ]]; then
         echo -e "\033[1;31mOpcion no valida.\033[0m"
         else
         echo -e "\033[1;33mRED HYSTERIA2 aparece en el menu, pero aun no esta disponible aqui.\033[0m"
@@ -2212,6 +2218,26 @@ EOF
 }
 EOF
     else
+    if [[ "$network" == "xhttp" ]]; then
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "vmess-xhttp-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "vmess",
+  "settings": {
+    "clients": [
+      { "id": "${uuid}", "email": "${proto}-${port}", "level": 0 }
+    ]
+  },
+  "streamSettings": {
+    "network": "xhttp",
+    "security": "${tls}",
+    "xhttpSettings": { "path": "${path}", "mode": "auto" }
+  }
+}
+EOF
+    else
     cat > "$tmp_json" <<EOF
 {
   "tag": "vmess-${network}-${port}",
@@ -2243,6 +2269,7 @@ EOF
   }
 }
 EOF
+    fi
     fi
     elif [[ "$proto" == "trojan" ]]; then
     if [[ "$network" == "tcp" ]]; then
@@ -3164,21 +3191,39 @@ EOF
               }
             ]
           },
-          streamSettings: {
+          streamSettings: ({
             network: $network,
-            wsSettings: {
-              headers: {
-                Host: $host
-              },
-              path: $path
-            },
-            security: (if $security == "tls" then "tls" else "none" end),
-            tlsSettings: {
-              allowInsecure: $allowInsecure,
-              fingerprint: "chrome",
-              serverName: $sni
-            }
+            security: (if $security == "tls" then "tls" else "none" end)
           }
+          + (
+            if $network == "xhttp" then {
+              xhttpSettings: {
+                host: $host,
+                path: $path,
+                mode: "auto"
+              }
+            } elif $network == "grpc" then {
+              grpcSettings: {
+                serviceName: $path
+              }
+            } elif $network == "ws" then {
+              wsSettings: {
+                headers: {
+                  Host: $host
+                },
+                path: $path
+              }
+            } else {} end
+          )
+          + (
+            if $security == "tls" then {
+              tlsSettings: {
+                allowInsecure: $allowInsecure,
+                fingerprint: "chrome",
+                serverName: $sni
+              }
+            } else {} end
+          ))
         }
       ]
     }'
