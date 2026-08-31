@@ -3080,21 +3080,39 @@ EOF
               }
             ]
           },
-          streamSettings: {
+          streamSettings: ({
             network: $network,
-            wsSettings: {
-              headers: {
-                Host: $host
-              },
-              path: $path
-            },
-            security: (if $security == "tls" then "tls" else "none" end),
-            tlsSettings: {
-              allowInsecure: $allowInsecure,
-              fingerprint: "chrome",
-              serverName: $sni
-            }
+            security: (if $security == "tls" then "tls" else "none" end)
           }
+          + (
+            if $network == "xhttp" then {
+              xhttpSettings: {
+                host: $host,
+                path: $path,
+                mode: "auto"
+              }
+            } elif $network == "grpc" then {
+              grpcSettings: {
+                serviceName: $path
+              }
+            } elif $network == "ws" then {
+              wsSettings: {
+                headers: {
+                  Host: $host
+                },
+                path: $path
+              }
+            } else {} end
+          )
+          + (
+            if $security == "tls" then {
+              tlsSettings: {
+                allowInsecure: $allowInsecure,
+                fingerprint: "chrome",
+                serverName: $sni
+              }
+            } else {} end
+          ))
         }
       ]
     }'
