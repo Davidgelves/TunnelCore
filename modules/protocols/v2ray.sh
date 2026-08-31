@@ -2993,13 +2993,18 @@ EOF
     path="$V2SEL_PATH"
     ext_port="$V2SEL_EXT_PORT"
     [[ -z "$ext_port" ]] && ext_port="$V2SEL_PORT"
-    [[ -z "$domain" ]] && domain="$(cat /etc/SSHPlus/IP 2>/dev/null || cat /etc/IP 2>/dev/null || v2ray_public_ip)"
+    if [[ -z "$domain" || "$domain" == "local" || "$domain" == "You-HostName.com" ]]; then
+    domain="$(cat /etc/SSHPlus/IP 2>/dev/null || cat /etc/IP 2>/dev/null || v2ray_public_ip)"
+    fi
     add_host="$domain"
     host_header=""
     sni=""
     if [[ "$link_tls" == "tls" ]]; then
-    host_header="$domain"
-    sni="${V2SEL_SNI:-You-HostName.com}"
+    if [[ "$V2SEL_SNI" == "You-HostName.com" || "$V2SEL_SNI" == "local" ]]; then
+    V2SEL_SNI=""
+    fi
+    sni="${V2SEL_SNI:-$domain}"
+    host_header="$sni"
     fi
     allow_insecure="false"
     if [[ "$link_tls" == "tls" ]]; then
