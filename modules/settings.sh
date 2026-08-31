@@ -125,19 +125,81 @@ tc_settings_uninstall_script() {
         return
     fi
 
-    systemctl stop tunnelcore-proxy tunnelcore-proxy2 tunnelcore-ws tunnelcore-limiter checkuser >/dev/null 2>&1 || true
-    systemctl disable tunnelcore-proxy tunnelcore-proxy2 tunnelcore-ws tunnelcore-limiter checkuser >/dev/null 2>&1 || true
-    systemctl daemon-reload >/dev/null 2>&1 || true
+    local user
+    if [[ -f /etc/tunnelcore/users.db ]]; then
+        while IFS='|' read -r user _; do
+            [[ -z "$user" ]] && continue
+            id "$user" >/dev/null 2>&1 && userdel -r "$user" >/dev/null 2>&1 || true
+        done < /etc/tunnelcore/users.db
+    fi
 
-    rm -f /usr/local/bin/tunnelcore /usr/bin/tunnelcore /bin/tunnelcore >/dev/null 2>&1 || true
-    rm -f /usr/local/bin/menu /usr/bin/menu /bin/menu >/dev/null 2>&1 || true
+    systemctl stop \
+        tunnelcore-proxy tunnelcore-proxy2 tunnelcore-ws tunnelcore-limiter \
+        checkuser tunnelcore-checkuser tunnelcore-badvpn slowdns hysteria-server \
+        xray v2ray dropbear squid squid3 stunnel4 stunnel >/dev/null 2>&1 || true
+    systemctl disable \
+        tunnelcore-proxy tunnelcore-proxy2 tunnelcore-ws tunnelcore-limiter \
+        checkuser tunnelcore-checkuser tunnelcore-badvpn slowdns hysteria-server \
+        xray v2ray dropbear squid squid3 stunnel4 stunnel >/dev/null 2>&1 || true
+
+    local unit
+    for unit in $(systemctl list-units 'v2ray@*.service' 'xray@*.service' --all --no-legend 2>/dev/null | awk '{print $1}'); do
+        systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    done
+    for unit in $(systemctl list-unit-files 'v2ray@*.service' 'xray@*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+        systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    done
+
+    rm -f \
+        /etc/systemd/system/tunnelcore-proxy.service \
+        /etc/systemd/system/tunnelcore-proxy2.service \
+        /etc/systemd/system/tunnelcore-ws.service \
+        /etc/systemd/system/tunnelcore-limiter.service \
+        /etc/systemd/system/checkuser.service \
+        /etc/systemd/system/tunnelcore-checkuser.service \
+        /etc/systemd/system/tunnelcore-badvpn.service \
+        /etc/systemd/system/slowdns.service \
+        /etc/systemd/system/hysteria-server.service \
+        /etc/systemd/system/xray.service \
+        /etc/systemd/system/v2ray.service \
+        /etc/systemd/system/xray@.service \
+        /etc/systemd/system/v2ray@.service >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl reset-failed >/dev/null 2>&1 || true
+
+    rm -f \
+        /usr/local/bin/tunnelcore /usr/bin/tunnelcore /bin/tunnelcore \
+        /usr/local/bin/menu /usr/bin/menu /bin/menu \
+        /usr/local/bin/tunnelcore-limiter \
+        /usr/local/bin/badvpn-udpgw \
+        /usr/local/bin/dnstt-server \
+        /usr/local/bin/hysteria1 \
+        /usr/local/bin/xray /usr/bin/xray /bin/xray \
+        /usr/local/bin/v2ray /usr/bin/v2ray /bin/v2ray >/dev/null 2>&1 || true
+
     rm -f /etc/profile.d/tunnelcore.sh >/dev/null 2>&1 || true
     sed -i "/alias menu='tunnelcore'/d" /root/.bashrc 2>/dev/null || true
     sed -i "\|. /etc/profile.d/tunnelcore.sh|d" /root/.bashrc 2>/dev/null || true
-    rm -rf /opt/tunnelcore >/dev/null 2>&1 || true
+    sed -i "\|^Banner /etc/tunnelcore/banner|d" /etc/ssh/sshd_config 2>/dev/null || true
+    sed -i 's|^DROPBEAR_BANNER="/etc/tunnelcore/banner"|#DROPBEAR_BANNER=""|' /etc/default/dropbear 2>/dev/null || true
+
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get purge -y dropbear squid squid3 stunnel4 >/dev/null 2>&1 || true
+        apt-get autoremove -y >/dev/null 2>&1 || true
+    fi
+
+    rm -rf \
+        /opt/tunnelcore \
+        /etc/tunnelcore \
+        /etc/SSHPlus \
+        /root/TunnelCore \
+        /usr/local/etc/xray \
+        /usr/local/etc/v2ray \
+        /etc/xray \
+        /etc/v2ray \
+        /var/log/xray >/dev/null 2>&1 || true
 
     tc_msg_ok "$(_t 'settings_uninstall_done')"
-    tc_msg_warn "$(_t 'settings_uninstall_data')"
     sleep 2
     clear
     exit 0

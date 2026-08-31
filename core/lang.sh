@@ -103,10 +103,10 @@ tc_tr() {
             "settings_view")       echo "VIEW CURRENT CONFIG" ;;
             "settings_lang")       echo "CHANGE LANGUAGE / CAMBIAR IDIOMA" ;;
             "settings_uninstall")  echo "UNINSTALL SCRIPT" ;;
-            "settings_uninstall_warn") echo "This will remove TunnelCore from the VPS." ;;
+            "settings_uninstall_warn") echo "This will remove TunnelCore, users, services, protocols and saved data from the VPS." ;;
             "settings_uninstall_confirm") echo "Do you want to uninstall the script?" ;;
-            "settings_uninstall_done") echo "TunnelCore script uninstalled successfully." ;;
-            "settings_uninstall_data") echo "Data in /etc/tunnelcore was kept." ;;
+            "settings_uninstall_done") echo "TunnelCore was fully uninstalled." ;;
+            "settings_uninstall_data") echo "TunnelCore data was removed." ;;
             "lang_selected_en")    echo "Language set to English." ;;
             "lang_selected_es")    echo "Idioma cambiado a Español." ;;
 
@@ -203,10 +203,10 @@ tc_tr() {
             "settings_view")       echo "VER CONFIGURACIÓN ACTUAL" ;;
             "settings_lang")       echo "CAMBIAR IDIOMA / CHANGE LANGUAGE" ;;
             "settings_uninstall")  echo "DESINSTALAR SCRIPT" ;;
-            "settings_uninstall_warn") echo "Esto eliminara TunnelCore de la VPS." ;;
+            "settings_uninstall_warn") echo "Esto eliminara TunnelCore, usuarios, servicios, protocolos y datos guardados de la VPS." ;;
             "settings_uninstall_confirm") echo "Desea desinstalar la script?" ;;
-            "settings_uninstall_done") echo "Script TunnelCore desinstalada correctamente." ;;
-            "settings_uninstall_data") echo "Los datos en /etc/tunnelcore se conservaron." ;;
+            "settings_uninstall_done") echo "TunnelCore fue desinstalada completamente." ;;
+            "settings_uninstall_data") echo "Los datos de TunnelCore fueron eliminados." ;;
             "lang_selected_en")    echo "Language set to English." ;;
             "lang_selected_es")    echo "Idioma cambiado a Español." ;;
 
