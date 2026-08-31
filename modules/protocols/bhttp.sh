@@ -9,7 +9,6 @@ TC_BHTTP_HCR_BIN="/usr/local/lib/tunnelcore-hcr-server"
 TC_BHTTP_ASSET_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bin"
 TC_BHTTP_BTUN_SERVICE="/etc/systemd/system/tunnelcore-btun.service"
 TC_BHTTP_HCR_SERVICE="/etc/systemd/system/tunnelcore-hcr.service"
-TC_BHTTP_RAW_BASE="${TC_BHTTP_RAW_BASE:-https://gitlab.com/rufu99/admrufu2.0/-/raw/main/bin}"
 
 TC_BHTTP_SELECTED_TARGET="127.0.0.1:22"
 
@@ -158,14 +157,8 @@ tc_bhttp_install_binary() {
         [[ -x "$bin" ]] && return 0
     fi
 
-    tc_msg_warn "Binario local ${asset} no encontrado; intentando descarga de respaldo..."
-    url="${TC_BHTTP_RAW_BASE}/${asset}"
-    if ! tc_download "$url" "$bin" 3; then
-        tc_msg_err "No se pudo descargar ${asset}."
-        return 1
-    fi
-    chmod +x "$bin"
-    [[ -x "$bin" ]]
+    tc_msg_err "Binario local ${asset} no encontrado en ${TC_BHTTP_ASSET_DIR}."
+    return 1
 }
 
 tc_bhttp_write_service() {
