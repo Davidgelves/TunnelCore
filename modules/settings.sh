@@ -111,6 +111,36 @@ tc_settings_restore_users() {
     tc_pause
 }
 
+tc_settings_uninstall_script() {
+    tc_clear
+    tc_title "$(_t 'settings_uninstall')"
+    tc_msg_warn "$(_t 'settings_uninstall_warn')"
+    tc_line
+
+    if ! tc_confirm "$(_t 'settings_uninstall_confirm')"; then
+        tc_msg_warn "$(_t 'cancel')"
+        tc_pause
+        return
+    fi
+
+    systemctl stop tunnelcore-proxy tunnelcore-proxy2 tunnelcore-ws tunnelcore-limiter checkuser >/dev/null 2>&1 || true
+    systemctl disable tunnelcore-proxy tunnelcore-proxy2 tunnelcore-ws tunnelcore-limiter checkuser >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+
+    rm -f /usr/local/bin/tunnelcore /usr/bin/tunnelcore /bin/tunnelcore >/dev/null 2>&1 || true
+    rm -f /usr/local/bin/menu /usr/bin/menu /bin/menu >/dev/null 2>&1 || true
+    rm -f /etc/profile.d/tunnelcore.sh >/dev/null 2>&1 || true
+    sed -i "/alias menu='tunnelcore'/d" /root/.bashrc 2>/dev/null || true
+    sed -i "\|. /etc/profile.d/tunnelcore.sh|d" /root/.bashrc 2>/dev/null || true
+    rm -rf /opt/tunnelcore >/dev/null 2>&1 || true
+
+    tc_msg_ok "$(_t 'settings_uninstall_done')"
+    tc_msg_warn "$(_t 'settings_uninstall_data')"
+    sleep 2
+    clear
+    exit 0
+}
+
 tc_settings_menu() {
     while true; do
         tc_clear
@@ -120,6 +150,7 @@ tc_settings_menu() {
         tc_opt "3" "$(_t 'settings_restore')"
         tc_opt "4" "$(_t 'settings_view')"
         tc_opt "5" "$(_t 'settings_lang')"
+        tc_opt "6" "$(_t 'settings_uninstall')"
         tc_line
         tc_opt "0" "$(_t 'back')"
         tc_line
@@ -142,6 +173,7 @@ tc_settings_menu() {
                     tc_lang_select
                 fi
                 ;;
+            6|06) tc_settings_uninstall_script ;;
             0|00) break ;;
             *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
         esac

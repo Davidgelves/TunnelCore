@@ -102,6 +102,11 @@ tc_tr() {
             "settings_restore")    echo "RESTORE USER BACKUP" ;;
             "settings_view")       echo "VIEW CURRENT CONFIG" ;;
             "settings_lang")       echo "CHANGE LANGUAGE / CAMBIAR IDIOMA" ;;
+            "settings_uninstall")  echo "UNINSTALL SCRIPT" ;;
+            "settings_uninstall_warn") echo "This will remove TunnelCore from the VPS." ;;
+            "settings_uninstall_confirm") echo "Do you want to uninstall the script?" ;;
+            "settings_uninstall_done") echo "TunnelCore script uninstalled successfully." ;;
+            "settings_uninstall_data") echo "Data in /etc/tunnelcore was kept." ;;
             "lang_selected_en")    echo "Language set to English." ;;
             "lang_selected_es")    echo "Idioma cambiado a Español." ;;
 
@@ -197,6 +202,11 @@ tc_tr() {
             "settings_restore")    echo "RESTAURAR COPIA DE SEGURIDAD" ;;
             "settings_view")       echo "VER CONFIGURACIÓN ACTUAL" ;;
             "settings_lang")       echo "CAMBIAR IDIOMA / CHANGE LANGUAGE" ;;
+            "settings_uninstall")  echo "DESINSTALAR SCRIPT" ;;
+            "settings_uninstall_warn") echo "Esto eliminara TunnelCore de la VPS." ;;
+            "settings_uninstall_confirm") echo "Desea desinstalar la script?" ;;
+            "settings_uninstall_done") echo "Script TunnelCore desinstalada correctamente." ;;
+            "settings_uninstall_data") echo "Los datos en /etc/tunnelcore se conservaron." ;;
             "lang_selected_en")    echo "Language set to English." ;;
             "lang_selected_es")    echo "Idioma cambiado a Español." ;;
 
@@ -204,6 +214,7 @@ tc_tr() {
         esac
     fi
 }
+
 
 # Alias corto
 _t() {
@@ -239,4 +250,3 @@ tc_lang_select() {
         *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
     esac
 }
-
