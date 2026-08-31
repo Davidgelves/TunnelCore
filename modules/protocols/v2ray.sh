@@ -430,10 +430,16 @@ v2ray_install_wizard() {
     esac
     if [[ "$tls" == "tls" ]]; then
     v2ray_wizard_screen "$name" "$type_label" "$port" "$proto_label" "$network_label" "$host" "$path" "$tls_label"
-    echo -ne "${SSHPlus_DARK_GREEN}DOMINIO/SNI TLS [${host:-local}]:${SCOLOR} "
+    echo -ne "${SSHPlus_DARK_GREEN}DOMINIO/SNI TLS [${host:-obligatorio}]:${SCOLOR} "
     read sni
-    [[ -z "$sni" ]] && sni="${host:-local}"
+    [[ -z "$sni" ]] && sni="$host"
     sni="$(printf '%s' "$sni" | tr -d '"\\[:space:]')"
+    if [[ -z "$sni" || "$sni" == "local" || "$sni" == "You-HostName.com" ]]; then
+    echo -e "\033[1;31mPara TLS necesita un dominio/SNI real. Use TLS DESACTIVADO para conexion directa por IP.\033[0m"
+    pausa_v2ray
+    return 1
+    fi
+    [[ -z "$host" && "$network" == "xhttp" ]] && host="$sni"
     fi
 
     while true; do
@@ -609,7 +615,8 @@ v2ray_install_wizard() {
     ext_port="$port"
     [[ "$tls" == "tls" ]] && ext_port="$port"
     domain="$host"
-    [[ -z "$domain" ]] && domain="$(cat /etc/SSHPlus/IP 2>/dev/null || cat /etc/IP 2>/dev/null || v2ray_public_ip)"
+    [[ "$tls" == "tls" && -n "$sni" ]] && domain="$sni"
+    [[ -z "$domain" || "$domain" == "local" || "$domain" == "You-HostName.com" ]] && domain="$(cat /etc/SSHPlus/IP 2>/dev/null || cat /etc/IP 2>/dev/null || v2ray_public_ip)"
     grep -v "^${port}|" /etc/SSHPlus/v2ray/configs.db 2>/dev/null > /etc/SSHPlus/v2ray/configs.db.tmp || true
     printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$port" "$name" "$proto" "$network" "$tls" "$domain" "$path" "$ext_port" "$sni" "$type" >> /etc/SSHPlus/v2ray/configs.db.tmp
     mv -f /etc/SSHPlus/v2ray/configs.db.tmp /etc/SSHPlus/v2ray/configs.db
