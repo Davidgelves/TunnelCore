@@ -1345,11 +1345,6 @@ v2ray_ensure_legacy_config "$config_v2ray"
 
     local link_network="$inbound_network"
     [[ -z "$link_network" || "$link_network" == "null" ]] && link_network="ws"
-    if [[ "$type" == "xray" && "$link_network" == "xhttp" && "$tls_mode" == "tls" ]]; then
-        add_host="local"
-        sni_host="local"
-        host_header="You-HostName.com"
-    fi
     local uri=""
     if [[ "$proto_tag" == "vmess" ]]; then
         local vmess_json
@@ -2699,11 +2694,6 @@ EOF
     mv -f /etc/SSHPlus/v2ray/configs.db.tmp /etc/SSHPlus/v2ray/configs.db
     grep -q "$uuid" /etc/SSHPlus/RegV2ray 2>/dev/null || echo "  $uuid | $user | $exp " >> /etc/SSHPlus/RegV2ray
 
-    if [[ "$type" == "xray" && "$network" == "xhttp" && "$link_tls" == "tls" ]]; then
-    domain="local"
-    sni="local"
-    host_header="You-HostName.com"
-    fi
 
     enc_path="$(v2ray_urlencode_path "$path")"
     if [[ "$proto" == "vmess" ]]; then
@@ -3059,6 +3049,8 @@ EOF
     fi
     if [[ "$?" = "0" ]]; then
     if [[ "$V2SEL_CORE" == "xray" ]]; then
+    cp -f "$cfg" "/usr/local/etc/xray/config-${V2SEL_PORT}.json" 2>/dev/null || true
+    ln -sf "/usr/local/etc/xray/config-${V2SEL_PORT}.json" "/usr/local/etc/xray/config.${V2SEL_PORT}.json" 2>/dev/null || true
     cp -f "$cfg" "/root/TunnelCore/v2ray/conf/config.${V2SEL_PORT}.json" 2>/dev/null || true
     else
     cp -f "$cfg" "/usr/local/etc/xray/config-${V2SEL_PORT}.json" 2>/dev/null || true
@@ -3093,12 +3085,7 @@ EOF
     host_header="$sni"
     fi
     allow_insecure="false"
-    if [[ "$V2SEL_CORE" == "xray" && "$network" == "xhttp" && "$link_tls" == "tls" ]]; then
-    add_host="local"
-    sni="local"
-    host_header="You-HostName.com"
-    allow_insecure="false"
-    elif [[ "$link_tls" == "tls" ]]; then
+    if [[ "$link_tls" == "tls" ]]; then
     echo -ne "${SSHPlus_DARK_GREEN}Permitir certificado local/no verificado? [s/N]:${SCOLOR} "
     read insecure_opt
     [[ "$insecure_opt" =~ ^[sS]$ ]] && allow_insecure="true"
