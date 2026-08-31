@@ -369,7 +369,7 @@ v2ray_install_wizard() {
     v2ray_opt "1" "RED TCP"
     v2ray_opt "2" "RED GRPC"
     v2ray_opt "3" "RED WEBSOCKET"
-    if [[ "$type" == "xray" && ( "$proto" == "vless" || "$proto" == "vmess" ) ]]; then
+    if [[ "$type" == "xray" && ( "$proto" == "vless" || "$proto" == "vmess" || "$proto" == "trojan" ) ]]; then
     v2ray_opt "4" "RED XHTTP"
     else
     v2ray_opt "4" "RED H2 (HTTP2)"
@@ -383,14 +383,14 @@ v2ray_install_wizard() {
       2) network="grpc"; network_label="GRPC" ;;
       3) network="ws"; network_label="WEBSOCKET" ;;
       4)
-        if [[ "$type" == "xray" && ( "$proto" == "vless" || "$proto" == "vmess" ) ]]; then
+        if [[ "$type" == "xray" && ( "$proto" == "vless" || "$proto" == "vmess" || "$proto" == "trojan" ) ]]; then
         network="xhttp"; network_label="XHTTP"
         else
         network="h2"; network_label="H2 (HTTP2)"
         fi
         ;;
       5)
-        if [[ "$type" == "xray" && ( "$proto" == "vless" || "$proto" == "vmess" ) ]]; then
+        if [[ "$type" == "xray" && ( "$proto" == "vless" || "$proto" == "vmess" || "$proto" == "trojan" ) ]]; then
         echo -e "\033[1;31mOpcion no valida.\033[0m"
         else
         echo -e "\033[1;33mRED HYSTERIA2 aparece en el menu, pero aun no esta disponible aqui.\033[0m"
@@ -2291,6 +2291,26 @@ EOF
 }
 EOF
     else
+    if [[ "$network" == "xhttp" ]]; then
+    cat > "$tmp_json" <<EOF
+{
+  "tag": "trojan-xhttp-${port}",
+  "listen": "0.0.0.0",
+  "port": ${port},
+  "protocol": "trojan",
+  "settings": {
+    "clients": [
+      { "password": "${password}" }
+    ]
+  },
+  "streamSettings": {
+    "network": "xhttp",
+    "security": "${tls}",
+    "xhttpSettings": { "path": "${path}", "mode": "auto" }
+  }
+}
+EOF
+    else
     cat > "$tmp_json" <<EOF
 {
   "tag": "trojan-${network}-${port}",
@@ -2309,6 +2329,7 @@ EOF
   }
 }
 EOF
+    fi
     fi
     elif [[ "$proto" == "shadowsocks" ]]; then
     cat > "$tmp_json" <<EOF
@@ -2679,7 +2700,13 @@ EOF
     uri="vmess://${vmess_b64}"
     elif [[ "$proto" == "trojan" ]]; then
     if [[ "$link_tls" == "tls" ]]; then
+    if [[ "$network" == "xhttp" ]]; then
+    uri="trojan://${password}@${domain}:${ext_port}?type=xhttp&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}&mode=auto#${user}"
+    else
     uri="trojan://${password}@${domain}:${ext_port}?type=${network}&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}#${user}"
+    fi
+    elif [[ "$network" == "xhttp" ]]; then
+    uri="trojan://${password}@${domain}:${ext_port}?type=xhttp&security=none&path=${enc_path}&mode=auto#${user}"
     elif [[ "$network" == "ws" ]]; then
     uri="trojan://${password}@${domain}:${ext_port}?type=ws&security=none&path=${enc_path}#${user}"
     else
