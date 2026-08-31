@@ -292,17 +292,13 @@ tc_bhttp_domain_resolves_here() {
     local domain="$1" public_ips resolved_ips ip dns_ip
     public_ips="$(
         {
-            tc_public_ip
-            curl -4fsS --max-time 5 https://checkip.amazonaws.com 2>/dev/null
-            hostname -I 2>/dev/null | tr ' ' '\n'
-        } | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print}' | sort -u
+            curl -4 -fsS --max-time 10 https://ifconfig.me 2>/dev/null
+        } | tr -d ' \r\t' | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print}' | sort -u
     )"
     resolved_ips="$(
         {
-            getent ahostsv4 "$domain" 2>/dev/null | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/ {print $1}'
             dig +short A "$domain" 2>/dev/null
-            host "$domain" 2>/dev/null | awk '/has address/ {print $4}'
-        } | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print}' | sort -u
+        } | tr -d ' \r\t' | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print}' | sort -u
     )"
 
     BHTTP_DOMAIN_PUBLIC_IPS="$public_ips"
@@ -319,6 +315,66 @@ tc_bhttp_domain_resolves_here() {
     return 1
 }
 
+tc_bhttp_port80_info() {
+    BHTTP_PORT80_STATUS="LIBRE"
+    BHTTP_PORT80_PROCESS=""
+    BHTTP_PORT80_PID=""
+
+    if command -v ss >/dev/null 2>&1; then
+        local line proc
+        line="$(ss -ltnp 2>/dev/null | awk '$4 ~ /(^|:)80$/ {print; exit}')"
+        [[ -z "$line" ]] && return 0
+        BHTTP_PORT80_STATUS="OCUPADO"
+        proc="$(sed -nE 's/.*users:\(\("([^"]+)",pid=([0-9]+).*/\1|\2/p' <<< "$line")"
+        BHTTP_PORT80_PROCESS="${proc%%|*}"
+        BHTTP_PORT80_PID="${proc##*|}"
+        [[ "$BHTTP_PORT80_PROCESS" = "$BHTTP_PORT80_PID" ]] && BHTTP_PORT80_PID=""
+        return 1
+    fi
+
+    if command -v lsof >/dev/null 2>&1; then
+        local row
+        row="$(lsof -nP -iTCP:80 -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1 "|" $2; exit}')"
+        [[ -z "$row" ]] && return 0
+        BHTTP_PORT80_STATUS="OCUPADO"
+        BHTTP_PORT80_PROCESS="${row%%|*}"
+        BHTTP_PORT80_PID="${row##*|}"
+        return 1
+    fi
+
+    BHTTP_PORT80_STATUS="NO VERIFICADO"
+    return 2
+}
+
+tc_bhttp_ufw_80_allowed() {
+    BHTTP_UFW_STATUS="NO ACTIVO"
+    BHTTP_UFW_RULE_CREATED="0"
+
+    command -v ufw >/dev/null 2>&1 || return 0
+    ufw status 2>/dev/null | grep -qi '^Status: active' || return 0
+
+    if ufw status 2>/dev/null | grep -qiE '(^|[[:space:]])80/tcp[[:space:]]+ALLOW|(^|[[:space:]])80[[:space:]]+ALLOW'; then
+        BHTTP_UFW_STATUS="PERMITIDO"
+        return 0
+    fi
+
+    BHTTP_UFW_STATUS="BLOQUEADO"
+    if tc_confirm "UFW esta activo y 80/tcp no esta permitido. Desea abrirlo temporalmente?"; then
+        ufw allow 80/tcp >/dev/null 2>&1 && {
+            BHTTP_UFW_STATUS="PERMITIDO"
+            BHTTP_UFW_RULE_CREATED="1"
+            return 0
+        }
+    fi
+    return 1
+}
+
+tc_bhttp_cleanup_ufw_80() {
+    if [[ "${BHTTP_UFW_RULE_CREATED:-0}" = "1" ]] && command -v ufw >/dev/null 2>&1; then
+        ufw delete allow 80/tcp >/dev/null 2>&1 || true
+    fi
+}
+
 tc_bhttp_default_cert() {
     local domain="$1"
     BHTTP_TLS_CERT="/etc/letsencrypt/live/${domain}/fullchain.pem"
@@ -326,7 +382,7 @@ tc_bhttp_default_cert() {
 }
 
 tc_bhttp_ensure_cert() {
-    local domain="$1" cert key email
+    local domain="$1" cert key email certbot_out certbot_rc log_tail
     tc_bhttp_default_cert "$domain"
     cert="$BHTTP_TLS_CERT"
     key="$BHTTP_TLS_KEY"
@@ -344,14 +400,63 @@ tc_bhttp_ensure_cert() {
     read -r email
     [[ -z "$email" ]] && email="admin@${domain}"
 
-    tc_apt_install certbot
-    certbot certonly --standalone --non-interactive --agree-tos \
-        --email "$email" -d "$domain" >/dev/null 2>&1 || {
-        tc_msg_err "Certbot no pudo emitir el certificado. Revise DNS, puerto 80 y firewall."
+    if ! tc_bhttp_port80_info; then
+        tc_msg_err "El puerto 80 esta ocupado."
+        printf '%bProceso:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_PORT80_PROCESS:-desconocido}" "$TC_NC"
+        printf '%bPID:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_PORT80_PID:-desconocido}" "$TC_NC"
+        printf '%bCertbot standalone necesita temporalmente el puerto 80 para HTTP-01.%b\n' "$TC_YELLOW" "$TC_NC"
         return 1
-    }
+    fi
 
-    [[ -s "$cert" && -s "$key" ]]
+    if ! tc_bhttp_ufw_80_allowed; then
+        tc_msg_err "UFW esta activo y 80/tcp no esta permitido."
+        return 1
+    fi
+
+    tc_apt_install certbot
+    certbot_out="$(certbot certonly --standalone \
+        --preferred-challenges http \
+        -d "$domain" \
+        --email "$email" \
+        --agree-tos \
+        --no-eff-email \
+        --non-interactive 2>&1)"
+    certbot_rc="$?"
+    tc_bhttp_cleanup_ufw_80
+
+    if [[ "$certbot_rc" -ne 0 ]]; then
+        tc_msg_err "No fue posible emitir el certificado."
+        tc_line
+        printf '%bDiagnostico:%b\n' "$TC_YELLOW" "$TC_NC"
+        printf '%bIP publica VPS:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_DOMAIN_PUBLIC_IPS:-N/A}" "$TC_NC"
+        printf '%bIP dominio:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_DOMAIN_RESOLVED_IPS:-N/A}" "$TC_NC"
+        printf '%bPuerto 80:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_PORT80_STATUS:-N/A}" "$TC_NC"
+        printf '%bFirewall 80/tcp:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_UFW_STATUS:-N/A}" "$TC_NC"
+        tc_line
+        printf '%bError de Certbot:%b\n' "$TC_YELLOW" "$TC_NC"
+        printf '%s\n' "$certbot_out" | tail -n 25
+        if [[ -f /var/log/letsencrypt/letsencrypt.log ]]; then
+            log_tail="$(tail -n 20 /var/log/letsencrypt/letsencrypt.log 2>/dev/null)"
+            [[ -n "$log_tail" ]] && {
+                tc_line
+                printf '%bUltimas lineas letsencrypt.log:%b\n' "$TC_YELLOW" "$TC_NC"
+                printf '%s\n' "$log_tail"
+            }
+        fi
+        if grep -qiE 'connection refused|timeout|timed out|unauthorized|Invalid response|Timeout during connect|Fetching' <<< "$certbot_out"; then
+            tc_line
+            tc_msg_err "Let's Encrypt no pudo acceder a ${domain} por el puerto 80."
+            printf '%bVerifique firewall de la VPS, firewall del proveedor o bloqueo externo del puerto 80.%b\n' "$TC_YELLOW" "$TC_NC"
+        fi
+        return 1
+    fi
+
+    if [[ -s "$cert" && -s "$key" ]]; then
+        return 0
+    fi
+
+    tc_msg_err "Certbot finalizo, pero no se encontraron fullchain.pem y privkey.pem para ${domain}."
+    return 1
 }
 
 tc_bhttp_tls_internal_port() {
@@ -438,6 +543,7 @@ tc_bhttp_enable_tls() {
 
     printf '%bDominio para TLS:%b ' "$TC_DARK_GREEN" "$TC_NC"
     read -r domain
+    domain="$(echo "${domain,,}" | tr -d ' \r\t\n')"
     if [[ -z "$domain" ]]; then
         tc_msg_err "Debe ingresar un dominio."
         tc_pause
