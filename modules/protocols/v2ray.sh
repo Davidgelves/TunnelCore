@@ -289,7 +289,7 @@ v2ray_normalize_inbound_json() {
       (if $network == "xhttp" then
         .streamSettings.xhttpSettings = ((.streamSettings.xhttpSettings // {}) + {
           path: $path,
-          mode: (.streamSettings.xhttpSettings.mode // "auto")
+          mode: (.streamSettings.xhttpSettings.mode // "packet-up")
         })
       else . end)
     ' "$inbound_json" > "$tmp" && mv "$tmp" "$inbound_json"
@@ -1384,13 +1384,13 @@ EOF
         [[ -z "$link_network" || "$link_network" == "null" || "$link_network" == "tcp" ]] && link_network="ws"
         if [[ "$tls_mode" == "tls" ]]; then
             if [[ "$link_network" == "xhttp" ]]; then
-                uri="vless://${UUID}@${add_host}:${ext_port}?encryption=none&type=xhttp&security=tls&sni=${sni_host}&host=${host_header}&path=${enc_path}&mode=auto#${nick}"
+                uri="vless://${UUID}@${add_host}:${ext_port}?encryption=none&type=xhttp&security=tls&sni=${sni_host}&host=${host_header}&path=${enc_path}&mode=packet-up#${nick}"
             else
                 uri="vless://${UUID}@${add_host}:${ext_port}?type=${link_network}&security=tls&sni=${sni_host}&host=${host_header}&path=${enc_path}#${nick}"
             fi
         else
             if [[ "$link_network" == "xhttp" ]]; then
-                uri="vless://${UUID}@${add_host}:${ext_port}?encryption=none&type=xhttp&security=none&path=${enc_path}&mode=auto#${nick}"
+                uri="vless://${UUID}@${add_host}:${ext_port}?encryption=none&type=xhttp&security=none&path=${enc_path}&mode=packet-up#${nick}"
             else
                 uri="vless://${UUID}@${add_host}:${ext_port}?type=${link_network}&security=none&path=${enc_path}#${nick}"
             fi
@@ -1951,7 +1951,7 @@ EOF
         "security": "none",
         "xhttpSettings": {
           "path": "${path}",
-          "mode": "auto"
+          "mode": "packet-up"
         }
       }
     }
@@ -2029,7 +2029,7 @@ EOF
     echo -e "${SSHPlus_DARK_GREEN}UUID      :${SCOLOR} \033[1;37m$uuid\033[0m"
     echo -e "${SSHPlus_CYAN}============================================================${SCOLOR}"
     echo -e "\033[1;33mLINK VLESS (Directo / Sin TLS):\033[0m"
-    echo -e "\033[1;37mvless://${uuid}@${host}:${port}?encryption=none&security=none&type=xhttp&path=$(v2ray_urlencode_path "$path")&mode=auto#TunnelCore-XHTTP\033[0m"
+    echo -e "\033[1;37mvless://${uuid}@${host}:${port}?encryption=none&security=none&type=xhttp&path=$(v2ray_urlencode_path "$path")&mode=packet-up#TunnelCore-XHTTP\033[0m"
     echo -e "${SSHPlus_CYAN}============================================================${SCOLOR}"
     pausa_v2ray
     menu_xray_xhttp
@@ -2243,7 +2243,7 @@ EOF
   "streamSettings": {
     "network": "xhttp",
     "security": "${tls}",
-    "xhttpSettings": { "path": "${path}", "mode": "auto" }
+    "xhttpSettings": { "path": "${path}", "mode": "packet-up" }
   }
 }
 EOF
@@ -2316,7 +2316,7 @@ EOF
   "streamSettings": {
     "network": "xhttp",
     "security": "${tls}",
-    "xhttpSettings": { "path": "${path}", "mode": "auto" }
+    "xhttpSettings": { "path": "${path}", "mode": "packet-up" }
   }
 }
 EOF
@@ -2437,7 +2437,7 @@ EOF
   "streamSettings": {
     "network": "xhttp",
     "security": "${tls}",
-    "xhttpSettings": { "path": "${path}", "mode": "auto" }
+    "xhttpSettings": { "path": "${path}", "mode": "packet-up" }
   }
 }
 EOF
@@ -2711,12 +2711,12 @@ EOF
     elif [[ "$proto" == "trojan" ]]; then
     if [[ "$link_tls" == "tls" ]]; then
     if [[ "$network" == "xhttp" ]]; then
-    uri="trojan://${password}@${domain}:${ext_port}?type=xhttp&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}&mode=auto#${user}"
+    uri="trojan://${password}@${domain}:${ext_port}?type=xhttp&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}&mode=packet-up#${user}"
     else
     uri="trojan://${password}@${domain}:${ext_port}?type=${network}&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}#${user}"
     fi
     elif [[ "$network" == "xhttp" ]]; then
-    uri="trojan://${password}@${domain}:${ext_port}?type=xhttp&security=none&path=${enc_path}&mode=auto#${user}"
+    uri="trojan://${password}@${domain}:${ext_port}?type=xhttp&security=none&path=${enc_path}&mode=packet-up#${user}"
     elif [[ "$network" == "ws" ]]; then
     uri="trojan://${password}@${domain}:${ext_port}?type=ws&security=none&path=${enc_path}#${user}"
     else
@@ -2733,7 +2733,7 @@ EOF
     uri="vless://${uuid}@${domain}:${ext_port}?type=grpc&security=tls&sni=${sni}&serviceName=${path}#${user}"
     else
     if [[ "$network" == "xhttp" ]]; then
-    uri="vless://${uuid}@${domain}:${ext_port}?encryption=none&type=xhttp&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}&mode=auto#${user}"
+    uri="vless://${uuid}@${domain}:${ext_port}?encryption=none&type=xhttp&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}&mode=packet-up#${user}"
     else
     uri="vless://${uuid}@${domain}:${ext_port}?type=${network}&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}#${user}"
     fi
@@ -2745,7 +2745,7 @@ EOF
     uri="vless://${uuid}@${domain}:${ext_port}?type=grpc&security=none&serviceName=${path}#${user}"
     else
     if [[ "$network" == "xhttp" ]]; then
-    uri="vless://${uuid}@${domain}:${ext_port}?encryption=none&type=xhttp&security=none&path=${enc_path}&mode=auto#${user}"
+    uri="vless://${uuid}@${domain}:${ext_port}?encryption=none&type=xhttp&security=none&path=${enc_path}&mode=packet-up#${user}"
     else
     uri="vless://${uuid}@${domain}:${ext_port}?type=${network}&security=none&path=${enc_path}#${user}"
     fi
@@ -3099,13 +3099,13 @@ EOF
     else
     if [[ "$link_tls" == "tls" ]]; then
     if [[ "$network" == "xhttp" ]]; then
-    uri="vless://${uuid}@${add_host}:${ext_port}?encryption=none&type=xhttp&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}&mode=auto#${nick}"
+    uri="vless://${uuid}@${add_host}:${ext_port}?encryption=none&type=xhttp&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}&mode=packet-up#${nick}"
     else
     uri="vless://${uuid}@${add_host}:${ext_port}?type=${network}&security=tls&sni=${sni}&host=${host_header}&path=${enc_path}#${nick}"
     fi
     else
     if [[ "$network" == "xhttp" ]]; then
-    uri="vless://${uuid}@${add_host}:${ext_port}?encryption=none&type=xhttp&security=none&path=${enc_path}&mode=auto#${nick}"
+    uri="vless://${uuid}@${add_host}:${ext_port}?encryption=none&type=xhttp&security=none&path=${enc_path}&mode=packet-up#${nick}"
     else
     uri="vless://${uuid}@${add_host}:${ext_port}?type=${network}&security=none&path=${enc_path}#${nick}"
     fi
@@ -3168,7 +3168,7 @@ EOF
               xhttpSettings: {
                 host: $host,
                 path: $path,
-                mode: "auto"
+                mode: "packet-up"
               }
             } elif $network == "grpc" then {
               grpcSettings: {
@@ -3237,7 +3237,7 @@ EOF
               xhttpSettings: {
                 host: $host,
                 path: $path,
-                mode: "auto"
+                mode: "packet-up"
               }
             } elif $network == "grpc" then {
               grpcSettings: {
