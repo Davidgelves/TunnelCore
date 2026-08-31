@@ -1343,9 +1343,19 @@ v2ray_ensure_legacy_config "$config_v2ray"
     [[ -z "$path_ws" || "$path_ws" == "null" ]] && path_ws="$(jq -r '.inbounds[0].streamSettings.wsSettings.path // .inbounds[0].streamSettings.xhttpSettings.path // "/v2ray"' "$cfg" 2>/dev/null)"
     [[ -z "$path_ws" || "$path_ws" == "null" ]] && path_ws="/v2ray"
 
+    local link_network="$inbound_network"
+    [[ -z "$link_network" || "$link_network" == "null" ]] && link_network="ws"
     local uri=""
     if [[ "$proto_tag" == "vmess" ]]; then
         local vmess_json
+        local vmess_alpn="" vmess_fp="" vmess_mode=""
+        if [[ "$link_network" == "xhttp" ]]; then
+            vmess_mode="auto"
+        fi
+        if [[ "$tls_mode" == "tls" ]]; then
+            vmess_fp="chrome"
+            [[ "$link_network" == "xhttp" ]] && vmess_alpn="h2"
+        fi
         vmess_json=$(cat <<EOF
 {
   "v": "2",
@@ -1355,14 +1365,15 @@ v2ray_ensure_legacy_config "$config_v2ray"
   "id": "$UUID",
   "aid": "0",
   "scy": "auto",
-  "net": "ws",
+  "net": "${link_network}",
   "type": "",
   "host": "${host_header}",
   "path": "${path_ws}",
   "tls": "${tls_mode}",
   "sni": "${sni_host}",
-  "alpn": "",
-  "fp": ""
+  "alpn": "${vmess_alpn}",
+  "fp": "${vmess_fp}",
+  "mode": "${vmess_mode}"
 }
 EOF
 )
@@ -1370,7 +1381,6 @@ EOF
         uri="vmess://${vmess_b64}"
     else
         local enc_path="$(v2ray_urlencode_path "$path_ws")"
-        local link_network="$inbound_network"
         [[ -z "$link_network" || "$link_network" == "null" || "$link_network" == "tcp" ]] && link_network="ws"
         if [[ "$tls_mode" == "tls" ]]; then
             if [[ "$link_network" == "xhttp" ]]; then
