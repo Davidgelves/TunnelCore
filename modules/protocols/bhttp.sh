@@ -6,6 +6,7 @@ TC_BHTTP_BTUN_CONF="${TC_BHTTP_DIR}/btun.conf"
 TC_BHTTP_HCR_CONF="${TC_BHTTP_DIR}/hcr.conf"
 TC_BHTTP_BTUN_BIN="/usr/local/lib/tunnelcore-bilola-server"
 TC_BHTTP_HCR_BIN="/usr/local/lib/tunnelcore-hcr-server"
+TC_BHTTP_ASSET_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bin"
 TC_BHTTP_BTUN_SERVICE="/etc/systemd/system/tunnelcore-btun.service"
 TC_BHTTP_HCR_SERVICE="/etc/systemd/system/tunnelcore-hcr.service"
 TC_BHTTP_RAW_BASE="${TC_BHTTP_RAW_BASE:-https://gitlab.com/rufu99/admrufu2.0/-/raw/main/bin}"
@@ -139,7 +140,7 @@ tc_bhttp_ask_target() {
 }
 
 tc_bhttp_install_binary() {
-    local proto="$1" bin url asset
+    local proto="$1" bin url asset local_asset
     bin="$(tc_bhttp_bin_path "$proto")"
     [[ -x "$bin" ]] && return 0
 
@@ -149,7 +150,15 @@ tc_bhttp_install_binary() {
         *) return 1 ;;
     esac
 
-    tc_msg_ok "Descargando binario ${asset}..."
+    local_asset="${TC_BHTTP_ASSET_DIR}/${asset}"
+    if [[ -f "$local_asset" ]]; then
+        tc_msg_ok "Instalando binario local ${asset}..."
+        cp -f "$local_asset" "$bin"
+        chmod +x "$bin"
+        [[ -x "$bin" ]] && return 0
+    fi
+
+    tc_msg_warn "Binario local ${asset} no encontrado; intentando descarga de respaldo..."
     url="${TC_BHTTP_RAW_BASE}/${asset}"
     if ! tc_download "$url" "$bin" 3; then
         tc_msg_err "No se pudo descargar ${asset}."
