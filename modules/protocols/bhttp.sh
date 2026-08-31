@@ -910,6 +910,117 @@ tc_bhttp_remove_extra_port_menu() {
     tc_pause
 }
 
+tc_bhttp_change_port_menu() {
+    local proto="$1" label display_port ports=() idx sel old_port new_p
+    label="$(tc_bhttp_label "$proto")"
+    tc_bhttp_load_conf "$proto"
+    display_port="$(tc_bhttp_display_port)"
+
+    if [[ -z "${BHTTP_EXTRA_PORTS:-}" ]]; then
+        printf '%bNuevo puerto [Enter = %s]:%b ' "$TC_DARK_GREEN" "$display_port" "$TC_NC"
+        read -r new_p
+        [[ -z "$new_p" ]] && new_p="$display_port"
+        if ! tc_valid_port "$new_p"; then
+            tc_msg_err "Puerto no valido."
+            tc_pause
+            return
+        fi
+        if tc_port_in_use "$new_p" && [[ "$new_p" != "$display_port" ]]; then
+            tc_msg_err "El puerto $new_p ya esta en uso."
+            tc_pause
+            return
+        fi
+        if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
+            BHTTP_TLS_PORT="$new_p"
+            if [[ "${BHTTP_TLS_MODE:-}" = "native" ]]; then
+                BHTTP_PORT="$new_p"
+            fi
+            tc_bhttp_save_conf "$proto"
+            tc_bhttp_restart_current "$proto"
+            tc_msg_ok "Puerto TLS actualizado a $new_p."
+        else
+            tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"
+            tc_msg_ok "Puerto actualizado a $new_p."
+        fi
+        tc_pause
+        return
+    fi
+
+    IFS=',' read -ra ports <<<"$BHTTP_EXTRA_PORTS"
+    tc_clear
+    tc_title "CAMBIAR PUERTO ${label}"
+    printf '%b[1]%b %b>%b %bPuerto principal %s%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_WHITE" "$display_port" "$TC_NC"
+    idx=2
+    for old_port in "${ports[@]}"; do
+        [[ -z "$old_port" ]] && continue
+        printf '%b[%d]%b %b>%b %bPuerto adicional %s%b\n' "$TC_NEON" "$idx" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_WHITE" "$old_port" "$TC_NC"
+        ((idx++))
+    done
+    tc_line
+    tc_opt "0" "$(_t 'cancel')"
+    tc_line
+    tc_prompt
+    read -r sel
+
+    [[ "$sel" = "0" || "$sel" = "00" ]] && return
+    if ! [[ "$sel" =~ ^[0-9]+$ ]] || (( sel < 1 || sel >= idx )); then
+        tc_msg_err "Opcion no valida."
+        tc_pause
+        return
+    fi
+
+    if (( sel == 1 )); then
+        old_port="$display_port"
+    else
+        old_port="${ports[$((sel - 2))]}"
+    fi
+
+    printf '%bNuevo puerto para reemplazar %s:%b ' "$TC_DARK_GREEN" "$old_port" "$TC_NC"
+    read -r new_p
+    if ! tc_valid_port "$new_p"; then
+        tc_msg_err "Puerto no valido."
+        tc_pause
+        return
+    fi
+    if [[ "$new_p" = "$display_port" ]] || tc_bhttp_port_in_list "${BHTTP_EXTRA_PORTS:-}" "$new_p"; then
+        tc_msg_err "Ese puerto ya esta configurado."
+        tc_pause
+        return
+    fi
+    if tc_port_in_use "$new_p"; then
+        tc_msg_err "El puerto $new_p ya esta en uso."
+        tc_pause
+        return
+    fi
+
+    if (( sel == 1 )); then
+        if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
+            BHTTP_TLS_PORT="$new_p"
+            if [[ "${BHTTP_TLS_MODE:-}" = "native" ]]; then
+                BHTTP_PORT="$new_p"
+            fi
+            tc_bhttp_save_conf "$proto"
+            tc_bhttp_restart_current "$proto"
+            tc_msg_ok "Puerto principal TLS actualizado a $new_p."
+        else
+            tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"
+            tc_msg_ok "Puerto principal actualizado a $new_p."
+        fi
+    else
+        tc_bhttp_stop_extra_port "$proto" "$old_port"
+        if tc_bhttp_start_extra_port "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"; then
+            BHTTP_EXTRA_PORTS="$(tc_bhttp_remove_port_from_list "$BHTTP_EXTRA_PORTS" "$old_port")"
+            BHTTP_EXTRA_PORTS="$(tc_bhttp_add_port_to_list "$BHTTP_EXTRA_PORTS" "$new_p")"
+            tc_bhttp_save_conf "$proto"
+            tc_msg_ok "Puerto adicional $old_port actualizado a $new_p."
+        else
+            tc_bhttp_start_extra_port "$proto" "$old_port" "${BHTTP_TARGET:-127.0.0.1:22}" >/dev/null 2>&1 || true
+            tc_msg_err "No se pudo cambiar el puerto adicional. Se restauro $old_port."
+        fi
+    fi
+    tc_pause
+}
+
 tc_bhttp_protocol_menu() {
     local proto="$1" label opt new_p display_port
     label="$(tc_bhttp_label "$proto")"
@@ -959,32 +1070,7 @@ tc_bhttp_protocol_menu() {
                         tc_bhttp_enable_tls "$proto"
                     fi
                     ;;
-                3|03)
-                    printf '%bNuevo puerto [Enter = %s]:%b ' "$TC_DARK_GREEN" "$display_port" "$TC_NC"
-                    read -r new_p
-                    [[ -z "$new_p" ]] && new_p="$display_port"
-                    if tc_valid_port "$new_p"; then
-                        if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
-                            if tc_port_in_use "$new_p"; then
-                                tc_msg_err "El puerto $new_p ya esta en uso."
-                            else
-                                BHTTP_TLS_PORT="$new_p"
-                                if [[ "${BHTTP_TLS_MODE:-}" = "native" ]]; then
-                                    BHTTP_PORT="$new_p"
-                                fi
-                                tc_bhttp_save_conf "$proto"
-                                tc_bhttp_restart_current "$proto"
-                                tc_msg_ok "Puerto TLS actualizado a $new_p."
-                            fi
-                        else
-                            tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"
-                            tc_msg_ok "Puerto actualizado a $new_p."
-                        fi
-                    else
-                        tc_msg_err "Puerto no valido."
-                    fi
-                    tc_pause
-                    ;;
+                3|03) tc_bhttp_change_port_menu "$proto" ;;
                 4|04)
                     if tc_bhttp_ask_target "$display_port"; then
                         BHTTP_TARGET="$TC_BHTTP_SELECTED_TARGET"
