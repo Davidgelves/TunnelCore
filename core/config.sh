@@ -16,8 +16,9 @@ tc_config_init() {
 TC_LANG="es"
 TC_VERSION="1.0.0"
 TC_INSTALL_DATE=""
-TC_GH_REPO="Davidgelves/TunnelCore"
-TC_GH_BRANCH="main"
+TC_REPO_URL="https://gitlab.com/Davidgelves/tunnelcore.git"
+TC_TARBALL_URL="https://gitlab.com/Davidgelves/tunnelcore/-/archive/main/tunnelcore-main.tar.gz"
+TC_BRANCH="main"
 EOF
         # Registrar fecha de instalación
         sed -i "s/TC_INSTALL_DATE=\"\"/TC_INSTALL_DATE=\"$(date '+%Y-%m-%d')\"/" "$TC_CONF_FILE"

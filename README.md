@@ -18,13 +18,13 @@ No se recomienda instalar en CentOS, Fedora, AlmaLinux, Rocky Linux, Arch Linux 
 Ejecute en su VPS como usuario `root`:
 
 ```bash
-wget -qO tunnelcore "https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh?$(date +%s)" && chmod +x tunnelcore && bash tunnelcore
+wget -qO tunnelcore "https://gitlab.com/Davidgelves/tunnelcore/-/raw/main/install.sh?$(date +%s)" && chmod +x tunnelcore && bash tunnelcore
 ```
 
 O tambien con `curl`:
 
 ```bash
-bash <(curl -fsSL "https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh?$(date +%s)")
+bash <(curl -fsSL "https://gitlab.com/Davidgelves/tunnelcore/-/raw/main/install.sh?$(date +%s)")
 ```
 
 ## Requisitos

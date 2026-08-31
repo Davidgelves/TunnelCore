@@ -1,6 +1,6 @@
 #!/bin/bash
 # TunnelCore - Instalador automatico
-# Uso: bash <(curl -fsSL https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh)
+# Uso: bash <(curl -fsSL https://gitlab.com/Davidgelves/tunnelcore/-/raw/main/install.sh)
 # Autor: J DAVID AG
 
 export DEBIAN_FRONTEND=noninteractive
@@ -126,8 +126,8 @@ apt-get install -y "${TC_PACKAGES[@]}" || {
 tc_install_ok "Dependencias instaladas correctamente."
 
 INSTALL_DIR="/opt/tunnelcore"
-REPO_URL="${TC_INSTALL_REPO:-https://github.com/Davidgelves/TunnelCore.git}"
-TARBALL_URL="${TC_INSTALL_TARBALL:-https://github.com/Davidgelves/TunnelCore/archive/refs/heads/main.tar.gz}"
+REPO_URL="${TC_INSTALL_REPO:-https://gitlab.com/Davidgelves/tunnelcore.git}"
+TARBALL_URL="${TC_INSTALL_TARBALL:-https://gitlab.com/Davidgelves/tunnelcore/-/archive/main/tunnelcore-main.tar.gz}"
 
 tc_install_progress "Descargando archivos de TunnelCore..."
 rm -rf "$INSTALL_DIR"

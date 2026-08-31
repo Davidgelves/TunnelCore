@@ -9,16 +9,18 @@ tc_settings_update() {
     tc_clear
     tc_title "ACTUALIZAR TUNNELCORE"
 
-    local repo branch
-    repo="$(tc_config_get "TC_GH_REPO" "Davidgelves/TunnelCore")"
-    branch="$(tc_config_get "TC_GH_BRANCH" "main")"
+    local repo_url tarball_url branch
+    repo_url="$(tc_config_get "TC_REPO_URL" "https://gitlab.com/Davidgelves/tunnelcore.git")"
+    tarball_url="$(tc_config_get "TC_TARBALL_URL" "https://gitlab.com/Davidgelves/tunnelcore/-/archive/main/tunnelcore-main.tar.gz")"
+    branch="$(tc_config_get "TC_BRANCH" "main")"
 
-    tc_msg_ok "Buscando actualizaciones en GitHub (${repo}@${branch})..."
+    tc_msg_ok "Buscando actualizaciones en GitLab (${repo_url}@${branch})..."
     local install_dir="/opt/tunnelcore"
 
     if [[ -d "${install_dir}/.git" ]]; then
         (
             cd "$install_dir"
+            git remote set-url origin "$repo_url" >/dev/null 2>&1 || true
             git fetch --all >/dev/null 2>&1
             git reset --hard "origin/${branch}" >/dev/null 2>&1
         )
@@ -28,13 +30,13 @@ tc_settings_update() {
     else
         # Si no fue clonado con git, descargar tarball
         local tmp_tar="/tmp/tunnelcore-update.tar.gz"
-        local url="https://github.com/${repo}/archive/refs/heads/${branch}.tar.gz"
+        local url="$tarball_url"
 
         if tc_download "$url" "$tmp_tar" 3; then
             mkdir -p "$install_dir"
             tar -xzf "$tmp_tar" -C /tmp
-            cp -rf "/tmp/TunnelCore-${branch}/"* "$install_dir/" 2>/dev/null || cp -rf "/tmp/TunnelCore-"*/* "$install_dir/" 2>/dev/null || true
-            rm -rf "$tmp_tar" "/tmp/TunnelCore-"*
+            cp -rf "/tmp/tunnelcore-${branch}/"* "$install_dir/" 2>/dev/null || cp -rf "/tmp/tunnelcore-"*/* "$install_dir/" 2>/dev/null || true
+            rm -rf "$tmp_tar" "/tmp/tunnelcore-"*
             chmod -R +x "$install_dir" 2>/dev/null || true
             chmod 755 "${install_dir}/tunnelcore" 2>/dev/null || true
             tc_msg_ok "TunnelCore actualizado correctamente."
