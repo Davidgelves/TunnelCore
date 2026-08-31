@@ -730,14 +730,8 @@ tc_bhttp_stop_extra_port() {
     local proto="$1" port="$2" service_name service_path
     service_name="$(tc_bhttp_extra_service_name "$proto" "$port")"
     service_path="$(tc_bhttp_extra_service_path "$proto" "$port")"
-    systemctl stop "$service_name" >/dev/null 2>&1 || true
-    systemctl disable "$service_name" >/dev/null 2>&1 || true
-    if [[ -n "${BHTTP_EXTRA_PORTS:-}" ]]; then
-        IFS=',' read -ra _items <<<"$BHTTP_EXTRA_PORTS"
-        for item in "${_items[@]}"; do
-            [[ -n "$item" ]] && tc_bhttp_stop_extra_port "$proto" "$item"
-        done
-    fi
+    timeout 8 systemctl stop "$service_name" >/dev/null 2>&1 || true
+    timeout 8 systemctl disable "$service_name" >/dev/null 2>&1 || true
     rm -f "$service_path"
     systemctl daemon-reload >/dev/null 2>&1 || true
 }
