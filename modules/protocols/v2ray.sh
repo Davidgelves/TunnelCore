@@ -1345,12 +1345,17 @@ v2ray_ensure_legacy_config "$config_v2ray"
 
     local link_network="$inbound_network"
     [[ -z "$link_network" || "$link_network" == "null" ]] && link_network="ws"
+    if [[ "$type" == "xray" && "$link_network" == "xhttp" && "$tls_mode" == "tls" ]]; then
+        add_host="local"
+        sni_host="local"
+        host_header="You-HostName.com"
+    fi
     local uri=""
     if [[ "$proto_tag" == "vmess" ]]; then
         local vmess_json
         local vmess_alpn="" vmess_fp="" vmess_mode=""
         if [[ "$link_network" == "xhttp" ]]; then
-            vmess_mode="auto"
+            vmess_mode="packet-up"
         fi
         if [[ "$tls_mode" == "tls" ]]; then
             vmess_fp="chrome"
@@ -2698,12 +2703,24 @@ EOF
     mv -f /etc/SSHPlus/v2ray/configs.db.tmp /etc/SSHPlus/v2ray/configs.db
     grep -q "$uuid" /etc/SSHPlus/RegV2ray 2>/dev/null || echo "  $uuid | $user | $exp " >> /etc/SSHPlus/RegV2ray
 
+    if [[ "$type" == "xray" && "$network" == "xhttp" && "$link_tls" == "tls" ]]; then
+    domain="local"
+    sni="local"
+    host_header="You-HostName.com"
+    fi
+
     enc_path="$(v2ray_urlencode_path "$path")"
     if [[ "$proto" == "vmess" ]]; then
     vmess_tls=""
     [[ "$link_tls" == "tls" ]] && vmess_tls="tls"
+    local vmess_alpn="" vmess_fp="" vmess_mode=""
+    if [[ "$link_tls" == "tls" ]]; then
+    vmess_fp="chrome"
+    [[ "$network" == "xhttp" ]] && vmess_alpn="h2"
+    fi
+    [[ "$network" == "xhttp" ]] && vmess_mode="packet-up"
     vmess_json=$(cat <<EOF
-{"v":"2","ps":"${user}","add":"${domain}","port":"${ext_port}","id":"${uuid}","aid":"0","scy":"auto","net":"${network}","type":"","host":"${host_header}","path":"${path}","tls":"${vmess_tls}","sni":"${sni}","alpn":"","fp":""}
+{"v":"2","ps":"${user}","add":"${domain}","port":"${ext_port}","id":"${uuid}","aid":"0","scy":"auto","net":"${network}","type":"","host":"${host_header}","path":"${path}","tls":"${vmess_tls}","sni":"${sni}","alpn":"${vmess_alpn}","fp":"${vmess_fp}","mode":"${vmess_mode}"}
 EOF
 )
     vmess_b64="$(printf '%s' "$vmess_json" | base64 -w 0 2>/dev/null || printf '%s' "$vmess_json" | base64 | tr -d '\n')"
@@ -3081,7 +3098,12 @@ EOF
     host_header="$sni"
     fi
     allow_insecure="false"
-    if [[ "$link_tls" == "tls" ]]; then
+    if [[ "$V2SEL_CORE" == "xray" && "$network" == "xhttp" && "$link_tls" == "tls" ]]; then
+    add_host="local"
+    sni="local"
+    host_header="You-HostName.com"
+    allow_insecure="false"
+    elif [[ "$link_tls" == "tls" ]]; then
     echo -ne "${SSHPlus_DARK_GREEN}Permitir certificado local/no verificado? [s/N]:${SCOLOR} "
     read insecure_opt
     [[ "$insecure_opt" =~ ^[sS]$ ]] && allow_insecure="true"
@@ -3116,8 +3138,8 @@ EOF
     fi
     fi
     clear
-    v2ray_title "Nuevo Usuario v2ray ${proto} ${link_tls}"
-    printf "\033[1;33mSERVICIO:\033[0m \033[1;37mv2ray\033[0m\n"
+    v2ray_title "Nuevo Usuario ${V2SEL_CORE:-v2ray} ${proto} ${link_tls}"
+    printf "\033[1;33mSERVICIO:\033[0m \033[1;37m%s\033[0m\n" "${V2SEL_CORE:-v2ray}"
     printf "\033[1;33mPROTOCOLO:\033[0m \033[1;37m%s\033[0m\n" "$proto"
     printf "\033[1;33mNOMBRE:\033[0m \033[1;37m%s\033[0m\n" "$nick"
     printf "\033[1;33mUUID:\033[0m \033[1;37m%s\033[0m\n" "$uuid"
