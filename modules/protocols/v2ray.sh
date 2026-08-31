@@ -323,20 +323,23 @@ v2ray_install_wizard() {
       *) echo -e "\033[1;31mOpcion no valida.\033[0m"; pausa_v2ray; return 1 ;;
     esac
 
+    while true; do
     v2ray_wizard_screen "$name" "$type_label"
     echo -ne "${SSHPlus_DARK_GREEN}INGRESA PUERTO:${SCOLOR} "
     read port
     [[ -z "$port" ]] && port="80"
     if ! v2ray_valid_port "$port"; then
     echo -e "\033[1;31mPuerto no valido. Use 1-65535.\033[0m"
-    pausa_v2ray
-    return 1
+    sleep 1
+    continue
     fi
     if v2ray_port_in_use_by_other "$port" "/usr/local/etc/xray/config-${port}.json"; then
-    v2ray_warn_port_busy "$port"
-    pausa_v2ray
-    return 1
+    echo -e " \033[1;31mEN USO!\033[0m"
+    sleep 1
+    continue
     fi
+    break
+    done
 
     v2ray_wizard_screen "$name" "$type_label" "$port"
     v2ray_opt "1" "VMESS"
