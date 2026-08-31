@@ -289,12 +289,34 @@ EOF
 }
 
 tc_bhttp_domain_resolves_here() {
-    local domain="$1" public_ip resolved
-    public_ip="$(tc_public_ip)"
-    resolved="$(getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1; exit}')"
-    [[ -z "$resolved" ]] && resolved="$(dig +short A "$domain" 2>/dev/null | head -n1)"
-    [[ -z "$resolved" ]] && resolved="$(host "$domain" 2>/dev/null | awk '/has address/ {print $4; exit}')"
-    [[ -n "$resolved" && "$resolved" = "$public_ip" ]]
+    local domain="$1" public_ips resolved_ips ip dns_ip
+    public_ips="$(
+        {
+            tc_public_ip
+            curl -4fsS --max-time 5 https://checkip.amazonaws.com 2>/dev/null
+            hostname -I 2>/dev/null | tr ' ' '\n'
+        } | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print}' | sort -u
+    )"
+    resolved_ips="$(
+        {
+            getent ahostsv4 "$domain" 2>/dev/null | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/ {print $1}'
+            dig +short A "$domain" 2>/dev/null
+            host "$domain" 2>/dev/null | awk '/has address/ {print $4}'
+        } | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print}' | sort -u
+    )"
+
+    BHTTP_DOMAIN_PUBLIC_IPS="$public_ips"
+    BHTTP_DOMAIN_RESOLVED_IPS="$resolved_ips"
+
+    [[ -n "$public_ips" && -n "$resolved_ips" ]] || return 2
+    while read -r ip; do
+        [[ -z "$ip" ]] && continue
+        while read -r dns_ip; do
+            [[ -z "$dns_ip" ]] && continue
+            [[ "$ip" = "$dns_ip" ]] && return 0
+        done <<< "$resolved_ips"
+    done <<< "$public_ips"
+    return 1
 }
 
 tc_bhttp_default_cert() {
@@ -422,11 +444,26 @@ tc_bhttp_enable_tls() {
         return
     fi
 
-    if ! tc_bhttp_domain_resolves_here "$domain"; then
-        tc_msg_err "El dominio no resuelve hacia la IP publica de esta VPS."
-        tc_pause
-        return
-    fi
+    tc_bhttp_domain_resolves_here "$domain"
+    case "$?" in
+        0) ;;
+        1)
+            tc_msg_warn "No pude confirmar que el dominio apunte a esta VPS."
+            printf '%bIP publica detectada:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_DOMAIN_PUBLIC_IPS:-N/A}" "$TC_NC"
+            printf '%bDNS del dominio:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_DOMAIN_RESOLVED_IPS:-N/A}" "$TC_NC"
+            if ! tc_confirm "Si el dominio esta correcto, desea continuar?"; then
+                return
+            fi
+            ;;
+        *)
+            tc_msg_warn "No pude validar DNS/IP automaticamente."
+            printf '%bIP publica detectada:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_DOMAIN_PUBLIC_IPS:-N/A}" "$TC_NC"
+            printf '%bDNS del dominio:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_DOMAIN_RESOLVED_IPS:-N/A}" "$TC_NC"
+            if ! tc_confirm "Desea continuar e intentar emitir/configurar TLS?"; then
+                return
+            fi
+            ;;
+    esac
 
     if ! tc_bhttp_ensure_cert "$domain"; then
         BHTTP_PORT="$old_port"; BHTTP_TLS="$old_tls"; BHTTP_TLS_PORT="$old_tls_port"; BHTTP_TLS_DOMAIN="$old_domain"
