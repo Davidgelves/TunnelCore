@@ -48,6 +48,16 @@ tc_bhttp_service_path() {
     esac
 }
 
+tc_bhttp_extra_service_name() {
+    local proto="$1" port="$2"
+    echo "tunnelcore-${proto}-${port}"
+}
+
+tc_bhttp_extra_service_path() {
+    local proto="$1" port="$2"
+    echo "/etc/systemd/system/$(tc_bhttp_extra_service_name "$proto" "$port").service"
+}
+
 tc_bhttp_load_conf() {
     local proto="$1" conf
     BHTTP_PORT="8080"
@@ -60,6 +70,7 @@ tc_bhttp_load_conf() {
     BHTTP_TLS_MODE=""
     BHTTP_TLS_INTERNAL_PORT=""
     BHTTP_PLAIN_PORT=""
+    BHTTP_EXTRA_PORTS=""
     conf="$(tc_bhttp_conf_path "$proto")"
     if [[ -f "$conf" ]]; then
         # shellcheck disable=SC1090
@@ -82,6 +93,7 @@ BHTTP_TLS_KEY="${BHTTP_TLS_KEY:-}"
 BHTTP_TLS_MODE="${BHTTP_TLS_MODE:-}"
 BHTTP_TLS_INTERNAL_PORT="${BHTTP_TLS_INTERNAL_PORT:-}"
 BHTTP_PLAIN_PORT="${BHTTP_PLAIN_PORT:-}"
+BHTTP_EXTRA_PORTS="${BHTTP_EXTRA_PORTS:-}"
 EOF
 }
 
@@ -363,6 +375,7 @@ tc_bhttp_restart_current() {
     else
         tc_bhttp_write_service "$proto" "${BHTTP_PORT:-8080}" "${BHTTP_TARGET:-127.0.0.1:22}" || return 1
         systemctl restart "$service_name" >/dev/null 2>&1 || return 1
+        tc_bhttp_restart_extra_ports "$proto"
     fi
 }
 
@@ -458,6 +471,12 @@ tc_bhttp_enable_tls() {
     tc_bhttp_save_conf "$proto"
 
     if tc_bhttp_restart_current "$proto" && tc_bhttp_tcp_listening "$tls_port"; then
+        if [[ -n "${BHTTP_EXTRA_PORTS:-}" ]]; then
+            IFS=',' read -ra _items <<<"$BHTTP_EXTRA_PORTS"
+            for item in "${_items[@]}"; do
+                [[ -n "$item" ]] && tc_bhttp_stop_extra_port "$proto" "$item"
+            done
+        fi
         if [[ "$mode" = "stunnel" ]]; then
             tc_msg_ok "${label} TLS activo en puerto $tls_port via Stunnel."
         else
@@ -585,6 +604,115 @@ tc_bhttp_start() {
     tc_bhttp_save_conf "$proto"
     tc_bhttp_write_service "$proto" "$port" "$target" || return 1
     systemctl restart "$service_name" >/dev/null 2>&1
+    tc_bhttp_restart_extra_ports "$proto"
+}
+
+tc_bhttp_port_in_list() {
+    local list="$1" port="$2" item
+    IFS=',' read -ra _items <<<"$list"
+    for item in "${_items[@]}"; do
+        [[ "$item" = "$port" ]] && return 0
+    done
+    return 1
+}
+
+tc_bhttp_add_port_to_list() {
+    local list="$1" port="$2"
+    if [[ -z "$list" ]]; then
+        echo "$port"
+    elif tc_bhttp_port_in_list "$list" "$port"; then
+        echo "$list"
+    else
+        echo "${list},${port}"
+    fi
+}
+
+tc_bhttp_remove_port_from_list() {
+    local list="$1" port="$2" item out=""
+    IFS=',' read -ra _items <<<"$list"
+    for item in "${_items[@]}"; do
+        [[ -z "$item" || "$item" = "$port" ]] && continue
+        [[ -z "$out" ]] && out="$item" || out="${out},${item}"
+    done
+    echo "$out"
+}
+
+tc_bhttp_write_extra_service() {
+    local proto="$1" port="$2" target="$3"
+    local service_path service_name bin target_host target_port description extra_args
+    service_path="$(tc_bhttp_extra_service_path "$proto" "$port")"
+    service_name="$(tc_bhttp_extra_service_name "$proto" "$port")"
+    bin="$(tc_bhttp_bin_path "$proto")"
+    target_host="${target%:*}"
+    target_port="${target##*:}"
+
+    case "$proto" in
+        btun)
+            description="TunnelCore BTUN BHTTP Extra Port ${port}"
+            extra_args="--listen 0.0.0.0:${port} --target ${target_host}:${target_port}"
+            ;;
+        hcr)
+            description="TunnelCore HCR Extra Port ${port}"
+            extra_args="--listen 0.0.0.0:${port} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
+            ;;
+        *) return 1 ;;
+    esac
+
+    cat > "$service_path" <<EOF
+[Unit]
+Description=${description}
+After=network-online.target ssh.service sshd.service dropbear.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${bin} ${extra_args}
+Restart=on-failure
+RestartSec=3
+User=root
+LimitNOFILE=65536
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload >/dev/null 2>&1
+    systemctl enable "$service_name" >/dev/null 2>&1
+}
+
+tc_bhttp_start_extra_port() {
+    local proto="$1" port="$2" target="$3" service_name
+    service_name="$(tc_bhttp_extra_service_name "$proto" "$port")"
+    tc_bhttp_install_binary "$proto" || return 1
+    tc_bhttp_write_extra_service "$proto" "$port" "$target" || return 1
+    systemctl restart "$service_name" >/dev/null 2>&1
+}
+
+tc_bhttp_stop_extra_port() {
+    local proto="$1" port="$2" service_name service_path
+    service_name="$(tc_bhttp_extra_service_name "$proto" "$port")"
+    service_path="$(tc_bhttp_extra_service_path "$proto" "$port")"
+    systemctl stop "$service_name" >/dev/null 2>&1 || true
+    systemctl disable "$service_name" >/dev/null 2>&1 || true
+    if [[ -n "${BHTTP_EXTRA_PORTS:-}" ]]; then
+        IFS=',' read -ra _items <<<"$BHTTP_EXTRA_PORTS"
+        for item in "${_items[@]}"; do
+            [[ -n "$item" ]] && tc_bhttp_stop_extra_port "$proto" "$item"
+        done
+    fi
+    rm -f "$service_path"
+    systemctl daemon-reload >/dev/null 2>&1 || true
+}
+
+tc_bhttp_restart_extra_ports() {
+    local proto="$1" item
+    [[ -z "${BHTTP_EXTRA_PORTS:-}" ]] && return 0
+    IFS=',' read -ra _items <<<"$BHTTP_EXTRA_PORTS"
+    for item in "${_items[@]}"; do
+        [[ -z "$item" ]] && continue
+        tc_bhttp_start_extra_port "$proto" "$item" "${BHTTP_TARGET:-127.0.0.1:22}" >/dev/null 2>&1 || true
+    done
 }
 
 tc_bhttp_stop() {
@@ -671,6 +799,86 @@ tc_bhttp_follow_logs() {
     journalctl -u "$service_name" -f --no-pager
 }
 
+tc_bhttp_add_extra_port_menu() {
+    local proto="$1" label port
+    label="$(tc_bhttp_label "$proto")"
+    tc_bhttp_load_conf "$proto"
+
+    if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
+        tc_msg_warn "Desactive TLS antes de agregar puertos plain adicionales."
+        tc_pause
+        return
+    fi
+
+    printf '%bNuevo puerto adicional para %s:%b ' "$TC_DARK_GREEN" "$label" "$TC_NC"
+    read -r port
+    if ! tc_valid_port "$port"; then
+        tc_msg_err "Puerto no valido."
+        tc_pause
+        return
+    fi
+    if [[ "$port" = "${BHTTP_PORT:-8080}" ]] || tc_bhttp_port_in_list "${BHTTP_EXTRA_PORTS:-}" "$port"; then
+        tc_msg_err "Ese puerto ya esta configurado."
+        tc_pause
+        return
+    fi
+    if tc_port_in_use "$port"; then
+        tc_msg_err "El puerto $port ya esta en uso."
+        tc_pause
+        return
+    fi
+
+    if tc_bhttp_start_extra_port "$proto" "$port" "${BHTTP_TARGET:-127.0.0.1:22}"; then
+        BHTTP_EXTRA_PORTS="$(tc_bhttp_add_port_to_list "${BHTTP_EXTRA_PORTS:-}" "$port")"
+        tc_bhttp_save_conf "$proto"
+        tc_msg_ok "Puerto adicional $port agregado para ${label}."
+    else
+        tc_msg_err "No se pudo activar el puerto adicional $port."
+    fi
+    tc_pause
+}
+
+tc_bhttp_remove_extra_port_menu() {
+    local proto="$1" label ports=() idx sel port
+    label="$(tc_bhttp_label "$proto")"
+    tc_bhttp_load_conf "$proto"
+
+    if [[ -z "${BHTTP_EXTRA_PORTS:-}" ]]; then
+        tc_msg_warn "No hay puertos adicionales configurados."
+        tc_pause
+        return
+    fi
+
+    IFS=',' read -ra ports <<<"$BHTTP_EXTRA_PORTS"
+    tc_clear
+    tc_title "QUITAR PUERTO ${label}"
+    idx=1
+    for port in "${ports[@]}"; do
+        [[ -z "$port" ]] && continue
+        printf '%b[%d]%b %b>%b %bPuerto %s%b\n' "$TC_NEON" "$idx" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_WHITE" "$port" "$TC_NC"
+        ((idx++))
+    done
+    tc_line
+    tc_opt "0" "$(_t 'cancel')"
+    tc_line
+    tc_prompt
+    read -r sel
+
+    [[ "$sel" = "0" || "$sel" = "00" ]] && return
+    if ! [[ "$sel" =~ ^[0-9]+$ ]] || (( sel < 1 || sel >= idx )); then
+        tc_msg_err "Opcion no valida."
+        tc_pause
+        return
+    fi
+
+    port="${ports[$((sel - 1))]}"
+    tc_bhttp_stop_extra_port "$proto" "$port"
+    BHTTP_EXTRA_PORTS="$(tc_bhttp_remove_port_from_list "$BHTTP_EXTRA_PORTS" "$port")"
+    tc_bhttp_save_conf "$proto"
+    tc_msg_ok "Puerto adicional $port eliminado."
+    tc_pause
+}
+
 tc_bhttp_protocol_menu() {
     local proto="$1" label opt new_p display_port
     label="$(tc_bhttp_label "$proto")"
@@ -683,6 +891,7 @@ tc_bhttp_protocol_menu() {
         if tc_bhttp_is_running "$proto"; then
             display_port="$(tc_bhttp_display_port)"
             printf '%bPUERTO:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$display_port" "$TC_NC"
+            printf '%bPUERTOS EXTRA:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${BHTTP_EXTRA_PORTS:-NINGUNO}" "$TC_NC"
             printf '%bDESTINO:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${BHTTP_TARGET:-127.0.0.1:22}" "$TC_NC"
             printf '%bTLS:%b %b%s%b' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$(tc_bhttp_tls_mark)" "$TC_NC"
             if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
@@ -702,6 +911,8 @@ tc_bhttp_protocol_menu() {
             tc_opt "6" "ESTADO"
             tc_opt "7" "VER LOG"
             tc_opt "8" "LOG EN VIVO"
+            tc_opt "9" "AGREGAR OTRO PUERTO"
+            tc_opt "10" "QUITAR PUERTO ADICIONAL"
             tc_line
             tc_opt "0" "$(_t 'back')"
             tc_line
@@ -756,6 +967,8 @@ tc_bhttp_protocol_menu() {
                 6|06) tc_bhttp_service_status "$proto" ;;
                 7|07) tc_bhttp_show_logs "$proto" ;;
                 8|08) tc_bhttp_follow_logs "$proto" ;;
+                9|09) tc_bhttp_add_extra_port_menu "$proto" ;;
+                10) tc_bhttp_remove_extra_port_menu "$proto" ;;
                 0|00) break ;;
                 *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
             esac
