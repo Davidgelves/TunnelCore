@@ -1,6 +1,6 @@
 #!/bin/bash
 # TunnelCore - Instalador automatico
-# Uso: bash <(curl -fsSL https://gitlab.com/Davidgelves/tunnelcore/-/raw/main/install.sh)
+# Uso: bash <(curl -fsSL https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/install.sh)
 # Autor: J DAVID AG
 
 export DEBIAN_FRONTEND=noninteractive
@@ -126,8 +126,8 @@ apt-get install -y "${TC_PACKAGES[@]}" || {
 tc_install_ok "Dependencias instaladas correctamente."
 
 INSTALL_DIR="/opt/tunnelcore"
-REPO_URL="${TC_INSTALL_REPO:-https://gitlab.com/Davidgelves/tunnelcore.git}"
-TARBALL_URL="${TC_INSTALL_TARBALL:-https://gitlab.com/Davidgelves/tunnelcore/-/archive/main/tunnelcore-main.tar.gz}"
+REPO_URL="${TC_INSTALL_REPO:-https://github.com/Davidgelves/TunnelCore.git}"
+TARBALL_URL="${TC_INSTALL_TARBALL:-https://github.com/Davidgelves/TunnelCore/archive/refs/heads/main.tar.gz}"
 
 tc_install_progress "Descargando archivos de TunnelCore..."
 rm -rf "$INSTALL_DIR"
@@ -138,8 +138,8 @@ else
     curl -fsSL "$TARBALL_URL" -o /tmp/tc.tar.gz 2>/dev/null || true
     if [[ -s /tmp/tc.tar.gz ]]; then
         tar -xzf /tmp/tc.tar.gz -C /tmp
-        cp -rf /tmp/tunnelcore-main-*/* "$INSTALL_DIR/" 2>/dev/null || true
-        rm -rf /tmp/tc.tar.gz /tmp/tunnelcore-main-*
+        cp -rf /tmp/TunnelCore-main/* "$INSTALL_DIR/" 2>/dev/null || cp -rf /tmp/tunnelcore-main-*/* "$INSTALL_DIR/" 2>/dev/null || true
+        rm -rf /tmp/tc.tar.gz /tmp/TunnelCore-main /tmp/tunnelcore-main-*
         tc_install_ok "Archivos descargados por tarball."
     else
         tc_install_fail "Error descargando TunnelCore."
