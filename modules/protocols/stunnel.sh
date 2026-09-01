@@ -243,9 +243,6 @@ tc_stunnel_add_port() {
     tc_clear
     tc_title "AGREGAR PUERTO SSL / TLS (STUNNEL)"
 
-    tc_stunnel_init_base_conf
-    tc_apt_install stunnel4 openssl
-
     local port target
     while true; do
         printf '%bPuerto de escucha SSL [ej: 443, 444, 8443]:%b ' "$TC_DARK_GREEN" "$TC_NC"
@@ -274,6 +271,9 @@ tc_stunnel_add_port() {
         return
     fi
     target="$TC_STUNNEL_TARGET"
+
+    tc_apt_install stunnel4 openssl
+    tc_stunnel_init_base_conf
 
     local tag="ssl-${port}"
     cat >> "$TC_STUNNEL_CONF" <<EOF
