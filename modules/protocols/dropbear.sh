@@ -53,7 +53,12 @@ tc_dropbear_install() {
         fi
     fi
 
-    tc_apt_install dropbear
+    if ! tc_dropbear_is_installed; then
+        tc_msg_warn "Instalando Dropbear, espere..."
+        tc_apt_install dropbear
+    else
+        tc_msg_warn "Verificando configuracion de Dropbear..."
+    fi
 
     if [[ -f "$TC_DROPBEAR_DEFAULT" ]]; then
         sed -i 's/NO_START=1/NO_START=0/g' "$TC_DROPBEAR_DEFAULT"
