@@ -226,6 +226,23 @@ tc_settings_uninstall_script() {
         /etc/v2ray \
         /var/log/xray >/dev/null 2>&1 || true
 
+    if tc_confirm "Desea borrar tambien restos externos de SuperFlash/Stunnel y dejar la VPS mas limpia?"; then
+        for unit in $(systemctl list-units 'superflash-bhttp-port-*.service' 'superflash-bhtt-port-*.service' --all --no-legend 2>/dev/null | awk '{print $1}'); do
+            systemctl disable --now "$unit" >/dev/null 2>&1 || true
+        done
+        for unit in $(systemctl list-unit-files 'superflash-bhttp-port-*.service' 'superflash-bhtt-port-*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+            systemctl disable --now "$unit" >/dev/null 2>&1 || true
+        done
+        rm -f \
+            /etc/systemd/system/superflash-bhttp-port-*.service \
+            /etc/systemd/system/superflash-bhtt-port-*.service \
+            /usr/local/bin/superflash-bhttp-server \
+            /usr/local/bin/superflash-bhtt-server >/dev/null 2>&1 || true
+        rm -rf /etc/stunnel /var/log/stunnel4 /var/log/tunnelcore >/dev/null 2>&1 || true
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl reset-failed >/dev/null 2>&1 || true
+    fi
+
     tc_msg_ok "$(_t 'settings_uninstall_done')"
     sleep 2
     clear
