@@ -169,6 +169,34 @@ EOF
     fi
 }
 
+tc_stunnel_ensure_section_certs() {
+    [[ -f "$TC_STUNNEL_CONF" ]] || return 0
+    local tmp_conf="/tmp/tunnelcore-stunnel-certs-$$.conf"
+    awk -v cert="$TC_STUNNEL_CERT" '
+        function flush_section() {
+            if (section != "") {
+                print section
+                if (has_accept && !has_cert) print "cert = " cert
+                printf "%s", body
+            }
+            section=""; body=""; has_accept=0; has_cert=0
+        }
+        /^[[:space:]]*\[/ {
+            flush_section()
+            section=$0
+            next
+        }
+        section != "" {
+            body = body $0 "\n"
+            if ($0 ~ /^[[:space:]]*accept[[:space:]]*=/) has_accept=1
+            if ($0 ~ /^[[:space:]]*cert[[:space:]]*=/) has_cert=1
+            next
+        }
+        { print }
+        END { flush_section() }
+    ' "$TC_STUNNEL_CONF" > "$tmp_conf" && mv "$tmp_conf" "$TC_STUNNEL_CONF"
+}
+
 # ── Listar puertos SSL activos en stunnel.conf ────────────────
 tc_stunnel_list_active_ports() {
     if [[ ! -f "$TC_STUNNEL_CONF" ]]; then
@@ -251,6 +279,7 @@ tc_stunnel_add_port() {
     cat >> "$TC_STUNNEL_CONF" <<EOF
 
 [${tag}]
+cert = ${TC_STUNNEL_CERT}
 accept = ${port}
 connect = ${target}
 EOF
@@ -358,6 +387,8 @@ tc_stunnel_stop() {
 
 tc_stunnel_activate() {
     if tc_stunnel_has_ports; then
+        tc_stunnel_init_base_conf
+        tc_stunnel_ensure_section_certs
         systemctl daemon-reload >/dev/null 2>&1 || true
         systemctl enable stunnel4 >/dev/null 2>&1 || true
         systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
