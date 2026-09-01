@@ -125,13 +125,26 @@ tc_settings_uninstall_script() {
         return
     fi
 
-    local user
-    if [[ -f /etc/tunnelcore/users.db ]]; then
-        while IFS='|' read -r user _; do
-            [[ -z "$user" ]] && continue
-            id "$user" >/dev/null 2>&1 && userdel -r "$user" >/dev/null 2>&1 || true
-        done < /etc/tunnelcore/users.db
-    fi
+    local user user_file managed_users
+    managed_users="$(mktemp)"
+    {
+        if [[ -f /etc/tunnelcore/users.db ]]; then
+            while IFS='|' read -r user _; do
+                [[ -z "$user" ]] && continue
+                printf '%s\n' "$user"
+            done < /etc/tunnelcore/users.db
+        fi
+        for user_file in /etc/tunnelcore/passwords/* /etc/SSHPlus/senha/*; do
+            [[ -f "$user_file" ]] || continue
+            printf '%s\n' "${user_file##*/}"
+        done
+    } | awk 'NF && $0 !~ /[^A-Za-z0-9._-]/ {print}' | sort -u > "$managed_users"
+
+    while read -r user; do
+        [[ -z "$user" ]] && continue
+        id "$user" >/dev/null 2>&1 && userdel -r "$user" >/dev/null 2>&1 || userdel -f "$user" >/dev/null 2>&1 || true
+    done < "$managed_users"
+    rm -f "$managed_users"
 
     systemctl stop \
         tunnelcore-proxy tunnelcore-proxy2 tunnelcore-ws tunnelcore-limiter \
