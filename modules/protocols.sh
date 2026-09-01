@@ -109,7 +109,7 @@ tc_proto_v2ray_ports() {
 }
 
 tc_protocols_ports_overview() {
-    local entries=() value i item label ports text sep line_len text_len max_width=58
+    local entries=() value i item label ports col_w=29
 
     value="$(tc_proto_ssh_ports)"; [[ -n "$value" ]] && entries+=("SSH|${value}")
     value="$(tc_proto_proxy_ports)"; [[ -n "$value" ]] && entries+=("PROXY|${value}")
@@ -133,22 +133,10 @@ tc_protocols_ports_overview() {
         item="${entries[$i]}"
         label="${item%%|*}"
         ports="${item#*|}"
-        text="${label}:${ports}"
-        text_len="${#text}"
-        sep=""
-        if (( line_len > 0 )); then
-            if (( line_len + 4 + text_len > max_width )); then
-                printf '\n'
-                line_len=0
-            else
-                sep="    "
-                line_len=$((line_len + 4))
-            fi
-        fi
-        printf '%s%b%s:%b%b%s%b' "$sep" "$TC_YELLOW" "$label" "$TC_NC" "$TC_WHITE" "$ports" "$TC_NC"
-        line_len=$((line_len + text_len))
+        printf '%b%s:%b %b%-*s%b' "$TC_YELLOW" "$label" "$TC_NC" "$TC_WHITE" "$col_w" "$ports" "$TC_NC"
+        [[ $(( (i + 1) % 2 )) -eq 0 ]] && printf '\n'
     done
-    printf '\n'
+    [[ $(( ${#entries[@]} % 2 )) -ne 0 ]] && printf '\n'
     tc_line
 }
 
