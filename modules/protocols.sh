@@ -69,8 +69,8 @@ tc_proto_slowdns_ports() {
 
 tc_proto_hysteria_ports() {
     declare -f tc_hyst_is_running >/dev/null && tc_hyst_is_running || return 0
-    declare -f tc_hyst_load_conf >/dev/null || return 0
-    tc_hyst_load_conf >/dev/null 2>&1 || true
+    declare -f tc_hyst_load_env >/dev/null || return 0
+    tc_hyst_load_env >/dev/null 2>&1 || true
     [[ -n "${HYST_PORT:-}" ]] && printf '%s' "$HYST_PORT"
 }
 
