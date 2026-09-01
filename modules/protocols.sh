@@ -82,7 +82,7 @@ tc_proto_badvpn_ports() {
 }
 
 tc_proto_bhttp_ports_one() {
-    local proto="$1" label="$2" out=""
+    local proto="$1" out=""
     declare -f tc_bhttp_load_conf >/dev/null || return 0
     declare -f tc_bhttp_is_running >/dev/null && tc_bhttp_is_running "$proto" || return 0
     tc_bhttp_load_conf "$proto" >/dev/null 2>&1 || true
@@ -92,15 +92,7 @@ tc_proto_bhttp_ports_one() {
         out="${BHTTP_PORT:-8080}"
     fi
     [[ -n "${BHTTP_EXTRA_PORTS:-}" ]] && out="${out}, ${BHTTP_EXTRA_PORTS}"
-    printf '%s %s' "$label" "$out"
-}
-
-tc_proto_bhttp_ports() {
-    local btun hcr sep=""
-    btun="$(tc_proto_bhttp_ports_one btun BTUN)"
-    hcr="$(tc_proto_bhttp_ports_one hcr HCR)"
-    [[ -n "$btun" ]] && { printf '%s' "$btun"; sep=" | "; }
-    [[ -n "$hcr" ]] && printf '%s%s' "$sep" "$hcr"
+    printf '%s' "$out"
 }
 
 tc_proto_v2ray_ports() {
@@ -124,7 +116,8 @@ tc_protocols_ports_overview() {
     value="$(tc_proto_hysteria_ports)"; [[ -n "$value" ]] && entries+=("HYSTERIA|${value}")
     value="$(tc_proto_v2ray_ports)"; [[ -n "$value" ]] && entries+=("V2RAY/XRAY|${value}")
     value="$(tc_proto_badvpn_ports)"; [[ -n "$value" ]] && entries+=("BADVPN|${value}")
-    value="$(tc_proto_bhttp_ports)"; [[ -n "$value" ]] && entries+=("BTUN/HCR|${value}")
+    value="$(tc_proto_bhttp_ports_one btun)"; [[ -n "$value" ]] && entries+=("BTUN|${value}")
+    value="$(tc_proto_bhttp_ports_one hcr)"; [[ -n "$value" ]] && entries+=("HCR|${value}")
 
     [[ ${#entries[@]} -eq 0 ]] && return 0
 
