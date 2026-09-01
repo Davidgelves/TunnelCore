@@ -109,7 +109,7 @@ tc_proto_v2ray_ports() {
 }
 
 tc_protocols_ports_overview() {
-    local entries=() value i item label ports col_w=29
+    local entries=() value i item label ports text col_w=31 pad
 
     value="$(tc_proto_ssh_ports)"; [[ -n "$value" ]] && entries+=("SSH|${value}")
     value="$(tc_proto_proxy_ports)"; [[ -n "$value" ]] && entries+=("PROXY|${value}")
@@ -133,8 +133,15 @@ tc_protocols_ports_overview() {
         item="${entries[$i]}"
         label="${item%%|*}"
         ports="${item#*|}"
-        printf '%b%s:%b %b%-*s%b' "$TC_YELLOW" "$label" "$TC_NC" "$TC_WHITE" "$col_w" "$ports" "$TC_NC"
-        [[ $(( (i + 1) % 2 )) -eq 0 ]] && printf '\n'
+        text="${label}: ${ports}"
+        printf '%b%s:%b %b%s%b' "$TC_YELLOW" "$label" "$TC_NC" "$TC_WHITE" "$ports" "$TC_NC"
+        if [[ $(( (i + 1) % 2 )) -eq 1 ]]; then
+            pad=$(( col_w - ${#text} ))
+            (( pad < 2 )) && pad=2
+            printf '%*s' "$pad" ''
+        else
+            printf '\n'
+        fi
     done
     [[ $(( ${#entries[@]} % 2 )) -ne 0 ]] && printf '\n'
     tc_line
