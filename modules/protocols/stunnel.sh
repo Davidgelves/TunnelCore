@@ -169,6 +169,20 @@ EOF
     fi
 }
 
+tc_stunnel_remove_ssl_sections() {
+    [[ -f "$TC_STUNNEL_CONF" ]] || return 0
+    local tmp_conf="/tmp/tunnelcore-stunnel-reset-$$.conf"
+    awk '
+        /^[[:space:]]*\[/ {
+            section=$0
+            gsub(/^[[:space:]]*\[/, "", section)
+            gsub(/\][[:space:]]*$/, "", section)
+            skip=(section ~ /^ssl-[0-9]+$/)
+        }
+        !skip { print }
+    ' "$TC_STUNNEL_CONF" > "$tmp_conf" && mv "$tmp_conf" "$TC_STUNNEL_CONF"
+}
+
 tc_stunnel_ensure_section_certs() {
     [[ -f "$TC_STUNNEL_CONF" ]] || return 0
     local tmp_conf="/tmp/tunnelcore-stunnel-certs-$$.conf"
@@ -381,7 +395,8 @@ tc_stunnel_del_port() {
 tc_stunnel_stop() {
     systemctl stop stunnel4 >/dev/null 2>&1 || true
     systemctl disable stunnel4 >/dev/null 2>&1 || true
-    tc_msg_ok "Servicio Stunnel4 detenido y desactivado."
+    tc_stunnel_remove_ssl_sections
+    tc_msg_ok "Servicio Stunnel4 detenido. Puertos SSL eliminados."
     tc_pause
 }
 
