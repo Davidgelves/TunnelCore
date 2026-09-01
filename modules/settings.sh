@@ -136,10 +136,12 @@ tc_settings_uninstall_script() {
     systemctl stop \
         tunnelcore-proxy tunnelcore-proxy2 tunnelcore-ws tunnelcore-limiter \
         checkuser tunnelcore-checkuser tunnelcore-badvpn slowdns hysteria-server \
+        tunnelcore-btun tunnelcore-hcr \
         xray v2ray dropbear squid squid3 stunnel4 stunnel >/dev/null 2>&1 || true
     systemctl disable \
         tunnelcore-proxy tunnelcore-proxy2 tunnelcore-ws tunnelcore-limiter \
         checkuser tunnelcore-checkuser tunnelcore-badvpn slowdns hysteria-server \
+        tunnelcore-btun tunnelcore-hcr \
         xray v2ray dropbear squid squid3 stunnel4 stunnel >/dev/null 2>&1 || true
 
     local unit
@@ -147,6 +149,12 @@ tc_settings_uninstall_script() {
         systemctl disable --now "$unit" >/dev/null 2>&1 || true
     done
     for unit in $(systemctl list-unit-files 'v2ray@*.service' 'xray@*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+        systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    done
+    for unit in $(systemctl list-units 'tunnelcore-btun-*.service' 'tunnelcore-hcr-*.service' --all --no-legend 2>/dev/null | awk '{print $1}'); do
+        systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    done
+    for unit in $(systemctl list-unit-files 'tunnelcore-btun-*.service' 'tunnelcore-hcr-*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
         systemctl disable --now "$unit" >/dev/null 2>&1 || true
     done
 
@@ -158,6 +166,10 @@ tc_settings_uninstall_script() {
         /etc/systemd/system/checkuser.service \
         /etc/systemd/system/tunnelcore-checkuser.service \
         /etc/systemd/system/tunnelcore-badvpn.service \
+        /etc/systemd/system/tunnelcore-btun.service \
+        /etc/systemd/system/tunnelcore-hcr.service \
+        /etc/systemd/system/tunnelcore-btun-*.service \
+        /etc/systemd/system/tunnelcore-hcr-*.service \
         /etc/systemd/system/slowdns.service \
         /etc/systemd/system/hysteria-server.service \
         /etc/systemd/system/xray.service \
@@ -174,6 +186,8 @@ tc_settings_uninstall_script() {
         /usr/local/bin/badvpn-udpgw \
         /usr/local/bin/dnstt-server \
         /usr/local/bin/hysteria1 \
+        /usr/local/lib/tunnelcore-bilola-server \
+        /usr/local/lib/tunnelcore-hcr-server \
         /usr/local/bin/xray /usr/bin/xray /bin/xray \
         /usr/local/bin/v2ray /usr/bin/v2ray /bin/v2ray >/dev/null 2>&1 || true
 
