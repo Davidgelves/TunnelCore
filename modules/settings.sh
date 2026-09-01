@@ -140,9 +140,15 @@ tc_settings_uninstall_script() {
         done
     } | awk 'NF && $0 !~ /[^A-Za-z0-9._-]/ {print}' | sort -u > "$managed_users"
 
+    if tc_confirm "Desea eliminar tambien usuarios SSH/VPN residuales sin registro de TunnelCore?"; then
+        awk -F: '$3 >= 1000 && $1 != "nobody" && $7 ~ /(false|nologin)$/ {print $1}' /etc/passwd 2>/dev/null \
+            | awk 'NF && $0 !~ /[^A-Za-z0-9._-]/ {print}' >> "$managed_users"
+        sort -u "$managed_users" -o "$managed_users"
+    fi
+
     while read -r user; do
         [[ -z "$user" ]] && continue
-        id "$user" >/dev/null 2>&1 && userdel -r "$user" >/dev/null 2>&1 || userdel -f "$user" >/dev/null 2>&1 || true
+        id "$user" >/dev/null 2>&1 && userdel -f -r "$user" >/dev/null 2>&1 || true
     done < "$managed_users"
     rm -f "$managed_users"
 
