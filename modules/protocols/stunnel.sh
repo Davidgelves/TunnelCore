@@ -202,6 +202,13 @@ client = no
 pid = /var/run/stunnel4.pid
 
 EOF
+    elif ! grep -qE '^[[:space:]]*cert[[:space:]]*=' "$TC_STUNNEL_CONF" 2>/dev/null; then
+        local tmp_conf
+        tmp_conf="/tmp/tunnelcore-stunnel-base-$$.conf"
+        {
+            printf 'cert = %s\n' "$TC_STUNNEL_CERT"
+            cat "$TC_STUNNEL_CONF"
+        } > "$tmp_conf" && mv "$tmp_conf" "$TC_STUNNEL_CONF"
     fi
 }
 

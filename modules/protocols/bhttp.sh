@@ -10,6 +10,7 @@ TC_BHTTP_ASSET_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bin"
 TC_BHTTP_BTUN_SERVICE="/etc/systemd/system/tunnelcore-btun.service"
 TC_BHTTP_HCR_SERVICE="/etc/systemd/system/tunnelcore-hcr.service"
 TC_BHTTP_STUNNEL_CONF="/etc/stunnel/stunnel.conf"
+TC_BHTTP_STUNNEL_DEFAULT_CERT="/etc/stunnel/stunnel.pem"
 
 TC_BHTTP_SELECTED_TARGET="127.0.0.1:22"
 
@@ -311,12 +312,26 @@ tc_bhttp_remove_stunnel_section() {
 
 tc_bhttp_init_stunnel_conf() {
     mkdir -p /etc/stunnel
+    if [[ ! -f "$TC_BHTTP_STUNNEL_DEFAULT_CERT" ]]; then
+        openssl req -new -x509 -days 3650 -nodes \
+            -subj "/C=US/ST=State/L=City/O=TunnelCore/OU=VPN/CN=*" \
+            -out "$TC_BHTTP_STUNNEL_DEFAULT_CERT" -keyout "$TC_BHTTP_STUNNEL_DEFAULT_CERT" >/dev/null 2>&1 || true
+        chmod 600 "$TC_BHTTP_STUNNEL_DEFAULT_CERT" 2>/dev/null || true
+    fi
     if [[ ! -f "$TC_BHTTP_STUNNEL_CONF" ]]; then
         cat > "$TC_BHTTP_STUNNEL_CONF" <<EOF
+cert = ${TC_BHTTP_STUNNEL_DEFAULT_CERT}
 client = no
 pid = /var/run/stunnel4.pid
 
 EOF
+    elif ! grep -qE '^[[:space:]]*cert[[:space:]]*=' "$TC_BHTTP_STUNNEL_CONF" 2>/dev/null; then
+        local tmp
+        tmp="/tmp/tunnelcore-stunnel-base-$$.conf"
+        {
+            printf 'cert = %s\n' "$TC_BHTTP_STUNNEL_DEFAULT_CERT"
+            cat "$TC_BHTTP_STUNNEL_CONF"
+        } > "$tmp" && mv "$tmp" "$TC_BHTTP_STUNNEL_CONF"
     fi
 }
 
