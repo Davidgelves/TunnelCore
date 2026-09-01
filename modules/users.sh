@@ -336,7 +336,7 @@ tc_user_remove() {
 
     local idx=1
     if [[ ${#all_users[@]} -eq 0 ]]; then
-        tc_msg_warn "No hay usuarios SSH/VPN listados, pero puede escribir un nombre manualmente."
+        tc_msg_warn "No hay usuarios registrados."
     else
         printf '%b%-4s %-20s %-14s %s%b\n' "$TC_YELLOW" "NUM" "USUARIO" "EXPIRA" "ESTADO" "$TC_NC"
         tc_line
@@ -364,7 +364,7 @@ tc_user_remove() {
     tc_line
     tc_opt "0" "$(_t 'cancel')"
     tc_line
-    tc_prompt "Seleccione usuario a eliminar (o escriba el nombre)"
+    tc_prompt "Seleccione (o escriba el nombre)"
     read -r sel
 
     [[ "$sel" == "0" || -z "$sel" ]] && return
