@@ -333,34 +333,33 @@ tc_user_remove() {
     tc_title "ELIMINAR USUARIO SSH/VPN"
 
     mapfile -t all_users < <(awk -F: '$3 >= 1000 && $1 != "nobody" {print $1}' /etc/passwd | sort)
-    if [[ ${#all_users[@]} -eq 0 ]]; then
-        tc_msg_warn "No hay usuarios SSH en el sistema."
-        tc_pause
-        return
-    fi
 
     local idx=1
-    printf '%b%-4s %-20s %-14s %s%b\n' "$TC_YELLOW" "NUM" "USUARIO" "EXPIRA" "ESTADO" "$TC_NC"
-    tc_line
+    if [[ ${#all_users[@]} -eq 0 ]]; then
+        tc_msg_warn "No hay usuarios SSH/VPN listados, pero puede escribir un nombre manualmente."
+    else
+        printf '%b%-4s %-20s %-14s %s%b\n' "$TC_YELLOW" "NUM" "USUARIO" "EXPIRA" "ESTADO" "$TC_NC"
+        tc_line
 
-    for u in "${all_users[@]}"; do
-        local exp_d
-        exp_d="$(tc_get_user_exp_days "$u")"
-        local conns
-        conns="$(tc_user_active_conns "$u")"
-        local st
-        if (( conns > 0 )); then
-            st="${TC_GREEN}ONLINE ($conns)${TC_NC}"
-        else
-            st="${TC_WHITE}OFFLINE${TC_NC}"
-        fi
+        for u in "${all_users[@]}"; do
+            local exp_d
+            exp_d="$(tc_get_user_exp_days "$u")"
+            local conns
+            conns="$(tc_user_active_conns "$u")"
+            local st
+            if (( conns > 0 )); then
+                st="${TC_GREEN}ONLINE ($conns)${TC_NC}"
+            else
+                st="${TC_WHITE}OFFLINE${TC_NC}"
+            fi
 
-        printf '%b[%d]%b > %b%-20s%b %-14s %b\n' \
-            "$TC_GREEN" "$idx" "$TC_NC" \
-            "$TC_WHITE" "$u" "$TC_NC" \
-            "$exp_d" "$st"
-        ((idx++))
-    done
+            printf '%b[%d]%b > %b%-20s%b %-14s %b\n' \
+                "$TC_GREEN" "$idx" "$TC_NC" \
+                "$TC_WHITE" "$u" "$TC_NC" \
+                "$exp_d" "$st"
+            ((idx++))
+        done
+    fi
 
     tc_line
     tc_opt "0" "$(_t 'cancel')"
