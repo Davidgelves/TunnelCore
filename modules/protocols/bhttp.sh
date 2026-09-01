@@ -901,6 +901,35 @@ tc_bhttp_stop_extra_port() {
     systemctl daemon-reload >/dev/null 2>&1 || true
 }
 
+tc_bhttp_stop_all_extra_ports() {
+    local proto="$1" item unit port
+
+    if [[ -n "${BHTTP_EXTRA_PORTS:-}" ]]; then
+        IFS=',' read -ra _items <<<"$BHTTP_EXTRA_PORTS"
+        for item in "${_items[@]}"; do
+            [[ -n "$item" ]] && tc_bhttp_stop_extra_port "$proto" "$item"
+        done
+    fi
+
+    for unit in /etc/systemd/system/tunnelcore-${proto}-*.service; do
+        [[ -e "$unit" ]] || continue
+        port="${unit##*/tunnelcore-${proto}-}"
+        port="${port%.service}"
+        tc_valid_port "$port" && tc_bhttp_stop_extra_port "$proto" "$port"
+    done
+
+    if command -v systemctl >/dev/null 2>&1; then
+        while read -r unit; do
+            [[ -z "$unit" ]] && continue
+            port="${unit#tunnelcore-${proto}-}"
+            port="${port%.service}"
+            tc_valid_port "$port" && tc_bhttp_stop_extra_port "$proto" "$port"
+        done < <(systemctl list-unit-files "tunnelcore-${proto}-*.service" --no-legend 2>/dev/null | awk '{print $1}')
+    fi
+
+    BHTTP_EXTRA_PORTS=""
+}
+
 tc_bhttp_restart_extra_ports() {
     local proto="$1" item
     [[ -z "${BHTTP_EXTRA_PORTS:-}" ]] && return 0
@@ -923,10 +952,13 @@ tc_bhttp_stop() {
         systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
     fi
 
+    tc_bhttp_stop_all_extra_ports "$proto"
+    tc_bhttp_save_conf "$proto"
     systemctl stop "$service_name" >/dev/null 2>&1 || true
     systemctl disable "$service_name" >/dev/null 2>&1 || true
     rm -f "$service_path"
     systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl reset-failed >/dev/null 2>&1 || true
     rm -f "$bin"
 }
 
