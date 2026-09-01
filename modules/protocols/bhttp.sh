@@ -209,6 +209,66 @@ tc_bhttp_tcp_listening() {
     fi
 }
 
+tc_bhttp_tcp_listening_addr() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        ss -tlnp 2>/dev/null | awk -v port="$port" '$4 ~ "(^|:)" port "$" {print; found=1} END {exit found ? 0 : 1}'
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tlnp 2>/dev/null | awk -v port="$port" '$4 ~ "(^|:)" port "$" {print; found=1} END {exit found ? 0 : 1}'
+    else
+        return 1
+    fi
+}
+
+tc_bhttp_service_tail() {
+    local service="$1"
+    if command -v journalctl >/dev/null 2>&1; then
+        journalctl -u "$service" --no-pager -n 12 2>/dev/null
+    else
+        systemctl status "$service" --no-pager -l 2>/dev/null | tail -n 20
+    fi
+}
+
+tc_bhttp_tls_fail_diag() {
+    local proto="$1" tls_port="$2" internal_port="$3" service_name
+    service_name="$(tc_bhttp_service_name "$proto")"
+
+    tc_msg_err "No se pudo activar TLS. Se restauro la configuracion anterior."
+    tc_line
+    printf '%bDiagnostico TLS:%b\n' "$TC_YELLOW" "$TC_NC"
+    printf '%bServicio interno:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$service_name" "$TC_NC"
+    printf '%bPuerto interno:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${internal_port:-N/A}" "$TC_NC"
+    printf '%bPuerto TLS publico:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$tls_port" "$TC_NC"
+
+    if [[ -n "$internal_port" ]]; then
+        if tc_bhttp_tcp_listening "$internal_port"; then
+            printf '%bInterno escuchando:%b %bSI%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC"
+        else
+            printf '%bInterno escuchando:%b %bNO%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_RED" "$TC_NC"
+        fi
+    fi
+
+    if tc_bhttp_tcp_listening "$tls_port"; then
+        printf '%bTLS escuchando:%b %bSI%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC"
+        tc_bhttp_tcp_listening_addr "$tls_port" || true
+    else
+        printf '%bTLS escuchando:%b %bNO%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_RED" "$TC_NC"
+    fi
+
+    tc_line
+    printf '%bEstado %s:%b\n' "$TC_YELLOW" "$service_name" "$TC_NC"
+    systemctl status "$service_name" --no-pager -l 2>/dev/null | tail -n 18 || true
+
+    if [[ "${BHTTP_TLS_MODE:-}" = "stunnel" ]]; then
+        tc_line
+        printf '%bEstado stunnel4:%b\n' "$TC_YELLOW" "$TC_NC"
+        systemctl status stunnel4 --no-pager -l 2>/dev/null | tail -n 18 || service stunnel4 status 2>/dev/null | tail -n 18 || true
+        tc_line
+        printf '%bUltimas lineas stunnel4:%b\n' "$TC_YELLOW" "$TC_NC"
+        tc_bhttp_service_tail stunnel4 || true
+    fi
+}
+
 tc_bhttp_supports_native_tls() {
     local proto="$1" bin help
     bin="$(tc_bhttp_bin_path "$proto")"
@@ -285,7 +345,7 @@ EOF
 
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl enable stunnel4 >/dev/null 2>&1 || true
-    systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
+    systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1
 }
 
 tc_bhttp_domain_resolves_here() {
@@ -388,6 +448,7 @@ tc_bhttp_ensure_cert() {
     key="$BHTTP_TLS_KEY"
 
     if [[ -s "$cert" && -s "$key" ]]; then
+        tc_msg_ok "Certificado existente encontrado para ${domain}."
         return 0
     fi
 
@@ -626,12 +687,12 @@ tc_bhttp_enable_tls() {
             tc_msg_ok "${label} TLS nativo activo en puerto $tls_port."
         fi
     else
+        tc_bhttp_tls_fail_diag "$proto" "$tls_port" "$internal_port"
         BHTTP_PORT="$old_port"; BHTTP_TLS="$old_tls"; BHTTP_TLS_PORT="$old_tls_port"; BHTTP_TLS_DOMAIN="$old_domain"
         BHTTP_TLS_CERT="$old_cert"; BHTTP_TLS_KEY="$old_key"; BHTTP_TLS_MODE="$old_mode"; BHTTP_TLS_INTERNAL_PORT="$old_internal"
         BHTTP_PLAIN_PORT="$old_plain"
         tc_bhttp_save_conf "$proto"
         tc_bhttp_restart_current "$proto" >/dev/null 2>&1 || true
-        tc_msg_err "No se pudo activar TLS. Se restauro la configuracion anterior."
     fi
     tc_pause
 }
