@@ -49,6 +49,42 @@ tc_stunnel_tcp_listening() {
     fi
 }
 
+tc_stunnel_port_owner() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltnp 2>/dev/null | awk -v port="$port" '$4 ~ "(^|:)" port "$" {print; found=1} END {exit found ? 0 : 1}'
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null
+    else
+        return 1
+    fi
+}
+
+tc_stunnel_diag() {
+    local port
+    tc_line
+    printf '%bDiagnostico Stunnel:%b\n' "$TC_YELLOW" "$TC_NC"
+    if [[ -f "$TC_STUNNEL_CONF" ]]; then
+        while read -r port; do
+            [[ -z "$port" ]] && continue
+            printf '%bPuerto configurado:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$port" "$TC_NC"
+            if tc_stunnel_port_owner "$port"; then
+                tc_stunnel_port_owner "$port"
+            else
+                printf '%bEstado puerto:%b %bLIBRE%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC"
+            fi
+        done < <(awk -F= '/^[[:space:]]*accept[[:space:]]*=/{gsub(/[ \t]/,"",$2); if($2!="") print $2}' "$TC_STUNNEL_CONF" | sort -u)
+    fi
+    tc_line
+    printf '%bEstado stunnel4:%b\n' "$TC_YELLOW" "$TC_NC"
+    systemctl status stunnel4 --no-pager -l 2>/dev/null | tail -n 20 || service stunnel4 status 2>/dev/null | tail -n 20 || true
+    if command -v journalctl >/dev/null 2>&1; then
+        tc_line
+        printf '%bUltimas lineas stunnel4:%b\n' "$TC_YELLOW" "$TC_NC"
+        journalctl -u stunnel4 --no-pager -n 20 2>/dev/null || true
+    fi
+}
+
 tc_stunnel_add_target_option() {
     local label="$1" port="$2"
     [[ -z "$port" || ! "$port" =~ ^[0-9]+$ ]] && return 0
@@ -360,12 +396,13 @@ tc_stunnel_activate() {
     if tc_stunnel_has_ports; then
         systemctl daemon-reload >/dev/null 2>&1 || true
         systemctl enable stunnel4 >/dev/null 2>&1 || true
-        systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
+        systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1
 
         if tc_stunnel_is_running; then
             tc_msg_ok "SSL Tunnel activado correctamente."
         else
             tc_msg_err "No se pudo activar SSL Tunnel. Revise que los puertos configurados no esten ocupados."
+            tc_stunnel_diag
         fi
         tc_pause
     else
