@@ -133,7 +133,7 @@ tc_protocols_ports_overview() {
         item="${entries[$i]}"
         label="${item%%|*}"
         ports="${item#*|}"
-        text="${label}: ${ports}"
+        text="${label}:${ports}"
         text_len="${#text}"
         sep=""
         if (( line_len > 0 )); then
@@ -145,7 +145,7 @@ tc_protocols_ports_overview() {
                 line_len=$((line_len + 4))
             fi
         fi
-        printf '%s%b%s:%b %b%s%b' "$sep" "$TC_YELLOW" "$label" "$TC_NC" "$TC_WHITE" "$ports" "$TC_NC"
+        printf '%s%b%s:%b%b%s%b' "$sep" "$TC_YELLOW" "$label" "$TC_NC" "$TC_WHITE" "$ports" "$TC_NC"
         line_len=$((line_len + text_len))
     done
     printf '\n'
