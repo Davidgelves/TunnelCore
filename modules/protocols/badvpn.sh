@@ -44,14 +44,16 @@ EOF
 
 tc_badvpn_install_bin() {
     if [[ -x "$TC_BADVPN_BIN" ]]; then
+        tc_msg_warn "Verificando binario BadVPN existente..."
         return 0
     fi
     if [[ -x "/bin/badvpn-udpgw" ]]; then
+        tc_msg_warn "Usando binario BadVPN existente..."
         ln -sf "/bin/badvpn-udpgw" "$TC_BADVPN_BIN"
         return 0
     fi
 
-    tc_msg_ok "Compilando badvpn-udpgw desde la fuente oficial..."
+    tc_msg_warn "Instalando dependencias para BadVPN, espere..."
     tc_apt_install ca-certificates curl build-essential cmake make gcc g++
 
     local version="1.999.130"
@@ -59,14 +61,17 @@ tc_badvpn_install_bin() {
     mkdir -p "$workdir"
 
     local url="https://github.com/ambrop72/badvpn/archive/refs/tags/${version}.tar.gz"
+    tc_msg_warn "Descargando fuente oficial de BadVPN..."
     if ! tc_download "$url" "${workdir}/badvpn.tar.gz" 3; then
         tc_msg_err "No se pudo descargar la fuente de BadVPN."
         rm -rf "$workdir"
         return 1
     fi
 
+    tc_msg_warn "Preparando compilacion de BadVPN..."
     tar -xzf "${workdir}/badvpn.tar.gz" -C "$workdir"
     mkdir -p "${workdir}/build"
+    tc_msg_warn "Compilando badvpn-udpgw, esto puede tardar..."
     (
         cd "${workdir}/build"
         cmake "../badvpn-${version}" -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1
@@ -79,6 +84,7 @@ tc_badvpn_install_bin() {
     }
 
     rm -rf "$workdir"
+    tc_msg_ok "BadVPN compilado e instalado."
     [[ -x "$TC_BADVPN_BIN" ]]
 }
 
