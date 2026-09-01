@@ -36,7 +36,7 @@ tc_valid_username() {
 
 tc_user_exists() {
     local u="$1"
-    id "$u" >/dev/null 2>&1 || grep -qE "^[[:space:]]*${u}[[:space:]]*\|" "$TC_USERS_DB" 2>/dev/null || grep -qw "$u" /root/usuarios.db 2>/dev/null
+    id "$u" >/dev/null 2>&1
 }
 
 tc_get_user_password() {
