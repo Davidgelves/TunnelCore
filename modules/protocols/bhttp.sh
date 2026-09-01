@@ -325,7 +325,11 @@ client = no
 pid = /var/run/stunnel4.pid
 
 EOF
-    elif ! grep -qE '^[[:space:]]*cert[[:space:]]*=' "$TC_BHTTP_STUNNEL_CONF" 2>/dev/null; then
+    elif ! awk '
+        /^[[:space:]]*\[/ { in_section=1 }
+        !in_section && /^[[:space:]]*cert[[:space:]]*=/ { found=1 }
+        END { exit found ? 0 : 1 }
+    ' "$TC_BHTTP_STUNNEL_CONF" 2>/dev/null; then
         local tmp
         tmp="/tmp/tunnelcore-stunnel-base-$$.conf"
         {

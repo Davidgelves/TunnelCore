@@ -202,7 +202,11 @@ client = no
 pid = /var/run/stunnel4.pid
 
 EOF
-    elif ! grep -qE '^[[:space:]]*cert[[:space:]]*=' "$TC_STUNNEL_CONF" 2>/dev/null; then
+    elif ! awk '
+        /^[[:space:]]*\[/ { in_section=1 }
+        !in_section && /^[[:space:]]*cert[[:space:]]*=/ { found=1 }
+        END { exit found ? 0 : 1 }
+    ' "$TC_STUNNEL_CONF" 2>/dev/null; then
         local tmp_conf
         tmp_conf="/tmp/tunnelcore-stunnel-base-$$.conf"
         {
@@ -401,6 +405,7 @@ tc_stunnel_stop() {
 
 tc_stunnel_activate() {
     if tc_stunnel_has_ports; then
+        tc_stunnel_init_base_conf
         systemctl daemon-reload >/dev/null 2>&1 || true
         systemctl enable stunnel4 >/dev/null 2>&1 || true
         systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1
