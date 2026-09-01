@@ -28,18 +28,24 @@ tc_proto_status_opt() {
         "$TC_WHITE" "$status" "$TC_NC"
 }
 
-tc_proto_ports_value() {
-    local label="$1" value="$2"
-    [[ -z "$value" ]] && value="NINGUNO"
-    printf '%b%-12s%b %b%s%b\n' "$TC_DARK_GREEN" "${label}:" "$TC_NC" "$TC_WHITE" "$value" "$TC_NC"
-}
-
 tc_proto_proxy_ports() {
     declare -f tc_proxy_is_running >/dev/null && tc_proxy_is_running || return 0
     declare -f tc_proxy_load_conf >/dev/null || return 0
     tc_proxy_load_conf >/dev/null 2>&1 || true
     [[ -n "${PROXY_PORT:-}" ]] && printf '%s' "$PROXY_PORT"
     [[ -n "${PROXY_PORT2:-}" ]] && printf ', %s' "$PROXY_PORT2"
+}
+
+tc_proto_ssh_ports() {
+    local ports
+    ports="$(grep -hE '^[[:space:]]*Port[[:space:]]+[0-9]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | sort -n -u)"
+    [[ -z "$ports" ]] && ports="22"
+    while read -r port; do
+        [[ -z "$port" ]] && continue
+        if tc_port_in_use "$port"; then
+            printf '%s\n' "$port"
+        fi
+    done <<< "$ports" | awk 'BEGIN{sep=""} {printf "%s%s", sep, $0; sep=", "}'
 }
 
 tc_proto_stunnel_ports() {
@@ -76,8 +82,9 @@ tc_proto_badvpn_ports() {
 }
 
 tc_proto_bhttp_ports_one() {
-    local proto="$1" label="$2" out="" shown
+    local proto="$1" label="$2" out=""
     declare -f tc_bhttp_load_conf >/dev/null || return 0
+    declare -f tc_bhttp_is_running >/dev/null && tc_bhttp_is_running "$proto" || return 0
     tc_bhttp_load_conf "$proto" >/dev/null 2>&1 || true
     if [[ "${BHTTP_TLS:-0}" = "1" && -n "${BHTTP_TLS_PORT:-}" ]]; then
         out="${BHTTP_TLS_PORT}/tls"
@@ -85,19 +92,15 @@ tc_proto_bhttp_ports_one() {
         out="${BHTTP_PORT:-8080}"
     fi
     [[ -n "${BHTTP_EXTRA_PORTS:-}" ]] && out="${out}, ${BHTTP_EXTRA_PORTS}"
-    if declare -f tc_bhttp_is_running >/dev/null && tc_bhttp_is_running "$proto"; then
-        shown="$out"
-    else
-        shown="x"
-    fi
-    printf '%s %s' "$label" "$shown"
+    printf '%s %s' "$label" "$out"
 }
 
 tc_proto_bhttp_ports() {
-    local btun hcr
+    local btun hcr sep=""
     btun="$(tc_proto_bhttp_ports_one btun BTUN)"
     hcr="$(tc_proto_bhttp_ports_one hcr HCR)"
-    printf '%s | %s' "$btun" "$hcr"
+    [[ -n "$btun" ]] && { printf '%s' "$btun"; sep=" | "; }
+    [[ -n "$hcr" ]] && printf '%s%s' "$sep" "$hcr"
 }
 
 tc_proto_v2ray_ports() {
@@ -117,18 +120,30 @@ tc_proto_v2ray_ports() {
 }
 
 tc_protocols_ports_overview() {
+    local entries=() label value i col text
+
+    value="$(tc_proto_ssh_ports)"; [[ -n "$value" ]] && entries+=("SSH ${value}")
+    value="$(tc_proto_proxy_ports)"; [[ -n "$value" ]] && entries+=("PROXY ${value}")
+    value="$(tc_proto_stunnel_ports)"; [[ -n "$value" ]] && entries+=("STUNNEL ${value}")
+    value="$(tc_proto_dropbear_ports)"; [[ -n "$value" ]] && entries+=("DROPBEAR ${value}")
+    value="$(tc_proto_slowdns_ports)"; [[ -n "$value" ]] && entries+=("SLOWDNS ${value}")
+    value="$(tc_proto_hysteria_ports)"; [[ -n "$value" ]] && entries+=("HYSTERIA ${value}")
+    value="$(tc_proto_v2ray_ports)"; [[ -n "$value" ]] && entries+=("V2RAY/XRAY ${value}")
+    value="$(tc_proto_badvpn_ports)"; [[ -n "$value" ]] && entries+=("BADVPN ${value}")
+    value="$(tc_proto_bhttp_ports)"; [[ -n "$value" ]] && entries+=("BTUN/HCR ${value}")
+
+    [[ ${#entries[@]} -eq 0 ]] && return 0
+
     tc_line
     printf '%bPUERTOS ACTIVOS%b\n' "$TC_YELLOW" "$TC_NC"
     tc_line
-    tc_proto_ports_value "SSH" "22"
-    tc_proto_ports_value "PROXY" "$(tc_proto_proxy_ports)"
-    tc_proto_ports_value "STUNNEL" "$(tc_proto_stunnel_ports)"
-    tc_proto_ports_value "DROPBEAR" "$(tc_proto_dropbear_ports)"
-    tc_proto_ports_value "SLOWDNS" "$(tc_proto_slowdns_ports)"
-    tc_proto_ports_value "HYSTERIA" "$(tc_proto_hysteria_ports)"
-    tc_proto_ports_value "V2RAY/XRAY" "$(tc_proto_v2ray_ports)"
-    tc_proto_ports_value "BADVPN" "$(tc_proto_badvpn_ports)"
-    tc_proto_ports_value "BTUN/HCR" "$(tc_proto_bhttp_ports)"
+    for i in "${!entries[@]}"; do
+        text="${entries[$i]}"
+        printf '%b%-28s%b' "$TC_WHITE" "$text" "$TC_NC"
+        col=$(( (i + 1) % 3 ))
+        [[ "$col" -eq 0 ]] && printf '\n'
+    done
+    [[ $(( ${#entries[@]} % 3 )) -ne 0 ]] && printf '\n'
     tc_line
 }
 
