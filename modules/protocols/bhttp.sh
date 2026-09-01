@@ -280,9 +280,7 @@ tc_bhttp_supports_native_tls() {
             grep -qiE -- '--tls-cert|tls-cert' <<< "$help" && grep -qiE -- '--tls-key|tls-key' <<< "$help"
             ;;
         hcr)
-            grep -qiE -- '--tls-cert|tls-cert' <<< "$help" &&
-            grep -qiE -- '--tls-key|tls-key' <<< "$help" &&
-            grep -qiE -- 'transport.*tls|--transport' <<< "$help"
+            return 1
             ;;
         *) return 1 ;;
     esac
