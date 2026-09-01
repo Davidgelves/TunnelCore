@@ -286,7 +286,12 @@ tc_stunnel_add_port() {
     fi
     target="$TC_STUNNEL_TARGET"
 
-    tc_apt_install stunnel4 openssl
+    if ! tc_stunnel_is_installed || ! command -v openssl >/dev/null 2>&1; then
+        tc_msg_warn "Instalando Stunnel/OpenSSL, espere..."
+        tc_apt_install stunnel4 openssl
+    else
+        tc_msg_warn "Verificando configuracion de Stunnel..."
+    fi
     tc_stunnel_init_base_conf
 
     local tag="ssl-${port}"
