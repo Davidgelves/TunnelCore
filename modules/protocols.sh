@@ -108,29 +108,23 @@ tc_proto_v2ray_ports() {
     [[ -s "$db" ]] || return 0
     awk -F'|' '
         $1 ~ /^[0-9]+$/ {
-            core=$10; proto=$3; net=$4; tls=$5; port=$1
-            if (core == "") core="v2ray"
-            if (proto == "") proto="vmess"
-            if (net == "") net="tcp"
-            desc=toupper(core) " " toupper(proto) "+" toupper(net)
-            if (tls == "tls" || tls == "1" || tls == "true") desc=desc "+TLS"
-            printf "%s %s\n", port, desc
+            print $1
         }
-    ' "$db" 2>/dev/null | awk 'BEGIN{sep=""} {printf "%s%s", sep, $0; sep=" | "}'
+    ' "$db" 2>/dev/null | sort -n -u | awk 'BEGIN{sep=""} {printf "%s%s", sep, $0; sep=", "}'
 }
 
 tc_protocols_ports_overview() {
-    local entries=() label value i col text
+    local entries=() value i col item label ports label_w=10 port_w=14 used pad
 
-    value="$(tc_proto_ssh_ports)"; [[ -n "$value" ]] && entries+=("SSH ${value}")
-    value="$(tc_proto_proxy_ports)"; [[ -n "$value" ]] && entries+=("PROXY ${value}")
-    value="$(tc_proto_stunnel_ports)"; [[ -n "$value" ]] && entries+=("STUNNEL ${value}")
-    value="$(tc_proto_dropbear_ports)"; [[ -n "$value" ]] && entries+=("DROPBEAR ${value}")
-    value="$(tc_proto_slowdns_ports)"; [[ -n "$value" ]] && entries+=("SLOWDNS ${value}")
-    value="$(tc_proto_hysteria_ports)"; [[ -n "$value" ]] && entries+=("HYSTERIA ${value}")
-    value="$(tc_proto_v2ray_ports)"; [[ -n "$value" ]] && entries+=("V2RAY/XRAY ${value}")
-    value="$(tc_proto_badvpn_ports)"; [[ -n "$value" ]] && entries+=("BADVPN ${value}")
-    value="$(tc_proto_bhttp_ports)"; [[ -n "$value" ]] && entries+=("BTUN/HCR ${value}")
+    value="$(tc_proto_ssh_ports)"; [[ -n "$value" ]] && entries+=("SSH|${value}")
+    value="$(tc_proto_proxy_ports)"; [[ -n "$value" ]] && entries+=("PROXY|${value}")
+    value="$(tc_proto_stunnel_ports)"; [[ -n "$value" ]] && entries+=("STUNNEL|${value}")
+    value="$(tc_proto_dropbear_ports)"; [[ -n "$value" ]] && entries+=("DROPBEAR|${value}")
+    value="$(tc_proto_slowdns_ports)"; [[ -n "$value" ]] && entries+=("SLOWDNS|${value}")
+    value="$(tc_proto_hysteria_ports)"; [[ -n "$value" ]] && entries+=("HYSTERIA|${value}")
+    value="$(tc_proto_v2ray_ports)"; [[ -n "$value" ]] && entries+=("V2RAY/XRAY|${value}")
+    value="$(tc_proto_badvpn_ports)"; [[ -n "$value" ]] && entries+=("BADVPN|${value}")
+    value="$(tc_proto_bhttp_ports)"; [[ -n "$value" ]] && entries+=("BTUN/HCR|${value}")
 
     [[ ${#entries[@]} -eq 0 ]] && return 0
 
@@ -138,8 +132,13 @@ tc_protocols_ports_overview() {
     printf '%bPUERTOS ACTIVOS%b\n' "$TC_YELLOW" "$TC_NC"
     tc_line
     for i in "${!entries[@]}"; do
-        text="${entries[$i]}"
-        printf '%b%-28s%b' "$TC_WHITE" "$text" "$TC_NC"
+        item="${entries[$i]}"
+        label="${item%%|*}"
+        ports="${item#*|}"
+        printf '%b%-*s%b %b%-*s%b' "$TC_YELLOW" "$label_w" "${label}:" "$TC_NC" "$TC_WHITE" "$port_w" "$ports" "$TC_NC"
+        used=$(( label_w + 1 + port_w ))
+        pad=$(( 30 - used ))
+        (( pad > 0 )) && printf '%*s' "$pad" ''
         col=$(( (i + 1) % 3 ))
         [[ "$col" -eq 0 ]] && printf '\n'
     done
