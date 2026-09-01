@@ -96,10 +96,13 @@ tc_proto_bhttp_ports_one() {
 }
 
 tc_proto_v2ray_ports() {
-    local db="/etc/SSHPlus/v2ray/configs.db"
+    local core_filter="$1" db="/etc/SSHPlus/v2ray/configs.db"
     [[ -s "$db" ]] || return 0
-    awk -F'|' '
+    awk -F'|' -v core_filter="$core_filter" '
         $1 ~ /^[0-9]+$/ {
+            core=tolower($10)
+            if (core == "") core="v2ray"
+            if (core != core_filter) next
             print $1
         }
     ' "$db" 2>/dev/null | sort -n -u | awk 'BEGIN{sep=""} {printf "%s%s", sep, $0; sep=", "}'
@@ -114,7 +117,8 @@ tc_protocols_ports_overview() {
     value="$(tc_proto_dropbear_ports)"; [[ -n "$value" ]] && entries+=("DROPBEAR|${value}")
     value="$(tc_proto_slowdns_ports)"; [[ -n "$value" ]] && entries+=("SLOWDNS|${value}")
     value="$(tc_proto_hysteria_ports)"; [[ -n "$value" ]] && entries+=("HYSTERIA|${value}")
-    value="$(tc_proto_v2ray_ports)"; [[ -n "$value" ]] && entries+=("V2RAY/XRAY|${value}")
+    value="$(tc_proto_v2ray_ports v2ray)"; [[ -n "$value" ]] && entries+=("V2RAY|${value}")
+    value="$(tc_proto_v2ray_ports xray)"; [[ -n "$value" ]] && entries+=("XRAY|${value}")
     value="$(tc_proto_badvpn_ports)"; [[ -n "$value" ]] && entries+=("BADVPN|${value}")
     value="$(tc_proto_bhttp_ports_one btun)"; [[ -n "$value" ]] && entries+=("BTUN|${value}")
     value="$(tc_proto_bhttp_ports_one hcr)"; [[ -n "$value" ]] && entries+=("HCR|${value}")
