@@ -586,15 +586,15 @@ tc_bhttp_enable_tls() {
     old_internal="$BHTTP_TLS_INTERNAL_PORT"
     old_plain="$BHTTP_PLAIN_PORT"
 
-    printf '%bPuerto TLS publico [Enter = 443]:%b ' "$TC_DARK_GREEN" "$TC_NC"
+    printf '%bPuerto TLS publico [Enter = %s]:%b ' "$TC_DARK_GREEN" "${BHTTP_PORT:-8080}" "$TC_NC"
     read -r tls_port
-    [[ -z "$tls_port" ]] && tls_port="443"
+    [[ -z "$tls_port" ]] && tls_port="${BHTTP_PORT:-8080}"
     if ! tc_valid_port "$tls_port"; then
         tc_msg_err "Puerto TLS no valido."
         tc_pause
         return
     fi
-    if tc_port_in_use "$tls_port"; then
+    if [[ "$tls_port" != "${BHTTP_PORT:-8080}" ]] && tc_port_in_use "$tls_port"; then
         tc_msg_err "El puerto TLS $tls_port ya esta en uso."
         tc_pause
         return
