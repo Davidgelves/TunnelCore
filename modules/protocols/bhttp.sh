@@ -571,6 +571,7 @@ tc_bhttp_display_port() {
 tc_bhttp_restart_current() {
     local proto="$1" service_name
     service_name="$(tc_bhttp_service_name "$proto")"
+    tc_bhttp_apply_tcp_tuning
 
     if [[ "${BHTTP_TLS:-0}" = "1" && "${BHTTP_TLS_MODE:-}" = "stunnel" ]]; then
         BHTTP_TLS_INTERNAL_PORT="${BHTTP_TLS_INTERNAL_PORT:-$(tc_bhttp_tls_internal_port "${BHTTP_TLS_PORT:-443}")}"
@@ -817,11 +818,51 @@ EOF
     systemctl enable "$service_name" >/dev/null 2>&1
 }
 
+tc_bhttp_apply_tcp_tuning() {
+    local sysctl_file="/etc/sysctl.d/99-tunnelcore-bhttp-tuning.conf"
+    mkdir -p /etc/sysctl.d 2>/dev/null || true
+
+    cat > "$sysctl_file" <<'EOF'
+# TunnelCore BTUN / HCR TCP Performance Tuning
+fs.file-max = 1048576
+net.core.somaxconn = 32768
+net.core.netdev_max_backlog = 16384
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv4.ip_local_port_range = 10240 65535
+net.ipv4.tcp_max_syn_backlog = 16384
+net.ipv4.tcp_max_tw_buckets = 262144
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_keepalive_time = 60
+net.ipv4.tcp_keepalive_intvl = 15
+net.ipv4.tcp_keepalive_probes = 4
+net.ipv4.tcp_mtu_probing = 1
+EOF
+
+    if command -v modprobe >/dev/null 2>&1; then
+        modprobe tcp_bbr >/dev/null 2>&1 || true
+    fi
+    if sysctl net.core.default_qdisc >/dev/null 2>&1; then
+        echo "net.core.default_qdisc = fq" >> "$sysctl_file"
+    fi
+    if sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -qw bbr; then
+        echo "net.ipv4.tcp_congestion_control = bbr" >> "$sysctl_file"
+    fi
+
+    sysctl -p "$sysctl_file" >/dev/null 2>&1 || sysctl --system >/dev/null 2>&1 || true
+}
+
 tc_bhttp_start() {
     local proto="$1" port="$2" target="$3" service_name
     service_name="$(tc_bhttp_service_name "$proto")"
 
     tc_bhttp_install_binary "$proto" || return 1
+    tc_bhttp_apply_tcp_tuning
     BHTTP_PORT="$port"
     BHTTP_TARGET="$target"
     tc_bhttp_save_conf "$proto"
