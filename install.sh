@@ -97,8 +97,8 @@ tc_install_wait_apt() {
 
 tc_install_apt_get() {
     tc_install_wait_apt || return 1
-    echo -e "${YELLOW}Si APT esta ocupado por actualizaciones automaticas, se esperara hasta 600 segundos...${NC}"
-    apt-get -o DPkg::Lock::Timeout=600 "$@"
+    echo -e "${YELLOW}Si APT esta ocupado, se esperara hasta 180 segundos...${NC}"
+    apt-get -o DPkg::Lock::Timeout=180 "$@"
 }
 
 clear
