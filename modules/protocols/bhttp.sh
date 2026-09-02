@@ -576,6 +576,7 @@ tc_bhttp_restart_current() {
         BHTTP_TLS_INTERNAL_PORT="${BHTTP_TLS_INTERNAL_PORT:-$(tc_bhttp_tls_internal_port "${BHTTP_TLS_PORT:-443}")}"
         tc_bhttp_write_service "$proto" "${BHTTP_TLS_INTERNAL_PORT:-$(tc_bhttp_tls_internal_port "${BHTTP_TLS_PORT:-443}")}" "${BHTTP_TARGET:-127.0.0.1:22}" || return 1
         systemctl restart "$service_name" >/dev/null 2>&1 || return 1
+        tc_bhttp_tcp_listening "${BHTTP_TLS_INTERNAL_PORT}" || return 1
         tc_bhttp_write_stunnel_section "$proto" "${BHTTP_TLS_PORT:-443}" "${BHTTP_TLS_INTERNAL_PORT}" "$BHTTP_TLS_CERT" "$BHTTP_TLS_KEY" || return 1
     else
         tc_bhttp_write_service "$proto" "${BHTTP_PORT:-8080}" "${BHTTP_TARGET:-127.0.0.1:22}" || return 1
