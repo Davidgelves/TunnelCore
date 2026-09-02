@@ -169,7 +169,7 @@ tc_bhttp_ask_target() {
 }
 
 tc_bhttp_install_binary() {
-    local proto="$1" bin asset local_asset
+    local proto="$1" bin asset local_asset arch
     bin="$(tc_bhttp_bin_path "$proto")"
     [[ -x "$bin" ]] && return 0
 
@@ -186,6 +186,29 @@ tc_bhttp_install_binary() {
         chmod +x "$bin"
         [[ -x "$bin" ]] && return 0
     fi
+
+    case "$proto" in
+        btun)
+            arch="$(uname -m 2>/dev/null || echo amd64)"
+            local url=""
+            case "$arch" in
+                x86_64|amd64)
+                    url="https://raw.githubusercontent.com/apksdemons/BHTTP/main/superflash-bhttp-server-v2.4.1-btun-compat-keepalive-linux-amd64"
+                    ;;
+                aarch64|arm64)
+                    url="https://raw.githubusercontent.com/apksdemons/BHTTP/main/superflash-bhttp-server-v2.4.1-btun-compat-keepalive-linux-arm64"
+                    ;;
+            esac
+            if [[ -n "$url" ]]; then
+                tc_msg_ok "Descargando motor SuperFlash BHTTP (${arch})..."
+                mkdir -p "$(dirname "$bin")"
+                if curl -fsSL --retry 3 --connect-timeout 12 "$url" -o "$bin"; then
+                    chmod +x "$bin"
+                    [[ -x "$bin" ]] && return 0
+                fi
+            fi
+            ;;
+    esac
 
     tc_msg_err "Binario local ${asset} no encontrado en ${TC_BHTTP_ASSET_DIR}."
     return 1
@@ -777,11 +800,8 @@ tc_bhttp_write_service() {
 
     case "$proto" in
         btun)
-            description="TunnelCore BTUN BHTTP Server"
-            extra_args="--listen ${listen_host}:${listen_port} --target ${target_host}:${target_port}"
-            if [[ "${BHTTP_TLS:-0}" = "1" && "${BHTTP_TLS_MODE:-}" = "native" ]]; then
-                extra_args="${extra_args} --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY}"
-            fi
+            description="TunnelCore BTUN BHTTP Server (SuperFlash Engine)"
+            extra_args="--listen ${listen_host} --port ${listen_port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 2048"
             ;;
         hcr)
             description="TunnelCore HCR Relay"
@@ -912,8 +932,8 @@ tc_bhttp_write_extra_service() {
 
     case "$proto" in
         btun)
-            description="TunnelCore BTUN BHTTP Extra Port ${port}"
-            extra_args="--listen 0.0.0.0:${port} --target ${target_host}:${target_port}"
+            description="TunnelCore BTUN BHTTP Extra Port ${port} (SuperFlash Engine)"
+            extra_args="--listen 0.0.0.0 --port ${port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 2048"
             ;;
         hcr)
             description="TunnelCore HCR Extra Port ${port}"
