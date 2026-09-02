@@ -89,18 +89,6 @@ tc_install_os_name() {
     fi
 }
 
-tc_install_wait_apt() {
-    if [[ -f /var/lib/dpkg/updates/0000 ]]; then
-        dpkg --configure -a >/dev/null 2>&1 || return 1
-    fi
-}
-
-tc_install_apt_get() {
-    tc_install_wait_apt || return 1
-    echo -e "${YELLOW}Si APT esta ocupado, se esperara hasta 180 segundos...${NC}"
-    apt-get -o DPkg::Lock::Timeout=180 "$@"
-}
-
 clear
 tc_install_line
 echo -e "${CYAN}                INSTALADOR TUNNELCORE v1.0.0               ${NC}"
@@ -126,11 +114,11 @@ if ! command -v apt-get >/dev/null 2>&1; then
 fi
 
 tc_install_progress "Actualizando repositorios del sistema..."
-tc_install_apt_get update -y || true
+apt-get update -y || true
 
 tc_install_progress "Instalando paquetes necesarios..."
 TC_PACKAGES=(curl wget git python3 unzip jq iptables net-tools ca-certificates openssl lsof libstdc++6 libcurl4-openssl-dev)
-tc_install_apt_get install -y "${TC_PACKAGES[@]}" || {
+apt-get install -y "${TC_PACKAGES[@]}" || {
     tc_install_fail "No se pudieron instalar las dependencias base."
     echo -e "${WHITE}Paquetes requeridos:${NC} ${TC_PACKAGES[*]}"
     exit 1
