@@ -173,44 +173,47 @@ tc_bhttp_install_binary() {
     bin="$(tc_bhttp_bin_path "$proto")"
     [[ -x "$bin" ]] && return 0
 
+    arch="$(uname -m 2>/dev/null || echo amd64)"
+
     case "$proto" in
-        btun) asset="bilola-server" ;;
-        hcr) asset="hcr-server" ;;
+        btun)
+            case "$arch" in
+                aarch64|arm64) asset="bilola-server-arm64" ;;
+                *) asset="bilola-server" ;;
+            esac
+            ;;
+        hcr)
+            asset="hcr-server"
+            ;;
         *) return 1 ;;
     esac
 
     local_asset="${TC_BHTTP_ASSET_DIR}/${asset}"
     if [[ -f "$local_asset" ]]; then
-        tc_msg_ok "Instalando binario local ${asset}..."
+        tc_msg_ok "Instalando binario ${proto}..."
+        mkdir -p "$(dirname "$bin")"
         cp -f "$local_asset" "$bin"
         chmod +x "$bin"
         [[ -x "$bin" ]] && return 0
     fi
 
-    case "$proto" in
-        btun)
-            arch="$(uname -m 2>/dev/null || echo amd64)"
-            local url=""
-            case "$arch" in
-                x86_64|amd64)
-                    url="https://raw.githubusercontent.com/apksdemons/BHTTP/main/superflash-bhttp-server-v2.4.1-btun-compat-keepalive-linux-amd64"
-                    ;;
-                aarch64|arm64)
-                    url="https://raw.githubusercontent.com/apksdemons/BHTTP/main/superflash-bhttp-server-v2.4.1-btun-compat-keepalive-linux-arm64"
-                    ;;
-            esac
-            if [[ -n "$url" ]]; then
-                tc_msg_ok "Descargando motor SuperFlash BHTTP (${arch})..."
-                mkdir -p "$(dirname "$bin")"
-                if curl -fsSL --retry 3 --connect-timeout 12 "$url" -o "$bin"; then
-                    chmod +x "$bin"
-                    [[ -x "$bin" ]] && return 0
-                fi
-            fi
-            ;;
-    esac
+    # Fallback directo desde tu propio repositorio TunnelCore (GitHub)
+    local raw_base="https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/modules/protocols/bin"
+    tc_msg_ok "Descargando binario ${asset} desde TunnelCore..."
+    mkdir -p "$(dirname "$bin")"
+    if curl -fsSL --retry 3 --connect-timeout 12 "${raw_base}/${asset}" -o "$bin"; then
+        chmod +x "$bin"
+        [[ -x "$bin" ]] && return 0
+    fi
 
-    tc_msg_err "Binario local ${asset} no encontrado en ${TC_BHTTP_ASSET_DIR}."
+    # Fallback de respaldo desde tu propio repositorio TunnelCore (GitLab)
+    local gitlab_base="https://gitlab.com/Davidgelves/tunnelcore/-/raw/main/modules/protocols/bin"
+    if curl -fsSL --retry 3 --connect-timeout 12 "${gitlab_base}/${asset}" -o "$bin"; then
+        chmod +x "$bin"
+        [[ -x "$bin" ]] && return 0
+    fi
+
+    tc_msg_err "No se pudo obtener el binario ${asset}."
     return 1
 }
 
