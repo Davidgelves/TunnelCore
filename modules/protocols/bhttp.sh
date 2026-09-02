@@ -679,7 +679,6 @@ tc_bhttp_enable_tls() {
             tc_pause
             return
         }
-        BHTTP_PORT="$internal_port"
         BHTTP_TLS_INTERNAL_PORT="$internal_port"
     fi
 
@@ -785,9 +784,11 @@ tc_bhttp_write_service() {
             ;;
         hcr)
             description="TunnelCore HCR Relay"
-            extra_args="--listen ${listen_host}:${listen_port} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
+            local hcr_listen=":${listen_port}"
+            [[ "$listen_host" != "0.0.0.0" ]] && hcr_listen="${listen_host}:${listen_port}"
+            extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
             if [[ "${BHTTP_TLS:-0}" = "1" && "${BHTTP_TLS_MODE:-}" = "native" ]]; then
-                extra_args="--listen ${listen_host}:${listen_port} --target ${target_host}:${target_port} --transport tls --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY} --max-download-frame 6144 --download-poll-timeout 8s"
+                extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport tls --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY} --max-download-frame 6144 --download-poll-timeout 8s"
             fi
             ;;
         *) return 1 ;;
@@ -875,7 +876,7 @@ tc_bhttp_write_extra_service() {
             ;;
         hcr)
             description="TunnelCore HCR Extra Port ${port}"
-            extra_args="--listen 0.0.0.0:${port} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
+            extra_args="--listen :${port} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
             ;;
         *) return 1 ;;
     esac
