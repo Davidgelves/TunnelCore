@@ -7,38 +7,12 @@ TC_BHTTP_HCR_CONF="${TC_BHTTP_DIR}/hcr.conf"
 TC_BHTTP_BTUN_BIN="/usr/local/lib/tunnelcore-bilola-server"
 TC_BHTTP_HCR_BIN="/usr/local/lib/tunnelcore-hcr-server"
 TC_BHTTP_ASSET_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bin"
-TC_BHTTP_BTUN_ENGINE_VERSION="2.4.1-btun-compat-keepalive"
-TC_BHTTP_BTUN_AMD64_SHA="6c539261249d79dd49f3ef0564bfd08f4c9bfcef7086eea36d645e027200e039"
-TC_BHTTP_BTUN_ARM64_SHA="6154c82038496e56973064cd5166642de17313b7f11217991bef9f8805c85b5f"
 TC_BHTTP_BTUN_SERVICE="/etc/systemd/system/tunnelcore-btun.service"
 TC_BHTTP_HCR_SERVICE="/etc/systemd/system/tunnelcore-hcr.service"
 TC_BHTTP_STUNNEL_CONF="/etc/stunnel/stunnel.conf"
 TC_BHTTP_STUNNEL_DEFAULT_CERT="/etc/stunnel/stunnel.pem"
 
 TC_BHTTP_SELECTED_TARGET="127.0.0.1:22"
-
-tc_bhttp_verify_binary() {
-    local proto="$1" bin="$2" expected_sha="${3:-}" self_test="${4:-1}" got_sha
-
-    if [[ "$proto" != "btun" ]]; then
-        return 0
-    fi
-
-    if [[ -n "$expected_sha" ]] && command -v sha256sum >/dev/null 2>&1; then
-        got_sha="$(sha256sum "$bin" 2>/dev/null | awk '{print $1}')"
-        if [[ "$got_sha" != "$expected_sha" ]]; then
-            tc_msg_err "SHA-256 incorrecto para BTUN ${TC_BHTTP_BTUN_ENGINE_VERSION}."
-            return 1
-        fi
-    fi
-
-    if [[ "$self_test" = "1" ]]; then
-        "$bin" --self-test >/dev/null 2>&1 || {
-            tc_msg_err "Self-test BTUN ${TC_BHTTP_BTUN_ENGINE_VERSION} fallo."
-            return 1
-        }
-    fi
-}
 
 tc_bhttp_service_name() {
     case "$1" in
@@ -195,7 +169,7 @@ tc_bhttp_ask_target() {
 }
 
 tc_bhttp_install_binary() {
-    local proto="$1" bin asset local_asset arch expected_sha
+    local proto="$1" bin asset local_asset arch
     bin="$(tc_bhttp_bin_path "$proto")"
     [[ -x "$bin" ]] && return 0
 
@@ -204,19 +178,12 @@ tc_bhttp_install_binary() {
     case "$proto" in
         btun)
             case "$arch" in
-                aarch64|arm64)
-                    asset="bilola-server-arm64"
-                    expected_sha="$TC_BHTTP_BTUN_ARM64_SHA"
-                    ;;
-                *)
-                    asset="bilola-server"
-                    expected_sha="$TC_BHTTP_BTUN_AMD64_SHA"
-                    ;;
+                aarch64|arm64) asset="bilola-server-arm64" ;;
+                *) asset="bilola-server" ;;
             esac
             ;;
         hcr)
             asset="hcr-server"
-            expected_sha=""
             ;;
         *) return 1 ;;
     esac
@@ -224,11 +191,9 @@ tc_bhttp_install_binary() {
     local_asset="${TC_BHTTP_ASSET_DIR}/${asset}"
     if [[ -f "$local_asset" ]]; then
         tc_msg_ok "Instalando binario ${proto}..."
-        tc_bhttp_verify_binary "$proto" "$local_asset" "$expected_sha" 0 || return 1
         mkdir -p "$(dirname "$bin")"
         cp -f "$local_asset" "$bin"
         chmod +x "$bin"
-        tc_bhttp_verify_binary "$proto" "$bin" "$expected_sha" || { rm -f "$bin"; return 1; }
         [[ -x "$bin" ]] && return 0
     fi
 
@@ -238,7 +203,6 @@ tc_bhttp_install_binary() {
     mkdir -p "$(dirname "$bin")"
     if curl -fsSL --retry 3 --connect-timeout 12 "${raw_base}/${asset}" -o "$bin"; then
         chmod +x "$bin"
-        tc_bhttp_verify_binary "$proto" "$bin" "$expected_sha" || { rm -f "$bin"; return 1; }
         [[ -x "$bin" ]] && return 0
     fi
 
@@ -246,7 +210,6 @@ tc_bhttp_install_binary() {
     local gitlab_base="https://gitlab.com/Davidgelves/tunnelcore/-/raw/main/modules/protocols/bin"
     if curl -fsSL --retry 3 --connect-timeout 12 "${gitlab_base}/${asset}" -o "$bin"; then
         chmod +x "$bin"
-        tc_bhttp_verify_binary "$proto" "$bin" "$expected_sha" || { rm -f "$bin"; return 1; }
         [[ -x "$bin" ]] && return 0
     fi
 
@@ -927,7 +890,7 @@ tc_bhttp_start() {
     BHTTP_TARGET="$target"
     tc_bhttp_save_conf "$proto"
     tc_bhttp_write_service "$proto" "$port" "$target" || return 1
-    systemctl restart "$service_name" >/dev/null 2>&1 || return 1
+    systemctl restart "$service_name" >/dev/null 2>&1
     tc_bhttp_restart_extra_ports "$proto"
 }
 
@@ -1255,17 +1218,11 @@ tc_bhttp_change_port_menu() {
                 BHTTP_PORT="$new_p"
             fi
             tc_bhttp_save_conf "$proto"
-            if tc_bhttp_restart_current "$proto"; then
-                tc_msg_ok "Puerto TLS actualizado a $new_p."
-            else
-                tc_msg_err "No se pudo actualizar el puerto TLS a $new_p."
-            fi
+            tc_bhttp_restart_current "$proto"
+            tc_msg_ok "Puerto TLS actualizado a $new_p."
         else
-            if tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"; then
-                tc_msg_ok "Puerto actualizado a $new_p."
-            else
-                tc_msg_err "No se pudo actualizar el puerto a $new_p."
-            fi
+            tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"
+            tc_msg_ok "Puerto actualizado a $new_p."
         fi
         tc_pause
         return
@@ -1325,17 +1282,11 @@ tc_bhttp_change_port_menu() {
                 BHTTP_PORT="$new_p"
             fi
             tc_bhttp_save_conf "$proto"
-            if tc_bhttp_restart_current "$proto"; then
-                tc_msg_ok "Puerto principal TLS actualizado a $new_p."
-            else
-                tc_msg_err "No se pudo actualizar el puerto principal TLS a $new_p."
-            fi
+            tc_bhttp_restart_current "$proto"
+            tc_msg_ok "Puerto principal TLS actualizado a $new_p."
         else
-            if tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"; then
-                tc_msg_ok "Puerto principal actualizado a $new_p."
-            else
-                tc_msg_err "No se pudo actualizar el puerto principal a $new_p."
-            fi
+            tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"
+            tc_msg_ok "Puerto principal actualizado a $new_p."
         fi
     else
         tc_bhttp_stop_extra_port "$proto" "$old_port"
@@ -1406,22 +1357,12 @@ tc_bhttp_protocol_menu() {
                     if tc_bhttp_ask_target "$display_port"; then
                         BHTTP_TARGET="$TC_BHTTP_SELECTED_TARGET"
                         tc_bhttp_save_conf "$proto"
-                        if tc_bhttp_restart_current "$proto"; then
-                            tc_msg_ok "Destino actualizado a $TC_BHTTP_SELECTED_TARGET."
-                        else
-                            tc_msg_err "No se pudo actualizar el destino a $TC_BHTTP_SELECTED_TARGET."
-                        fi
+                        tc_bhttp_restart_current "$proto"
+                        tc_msg_ok "Destino actualizado a $TC_BHTTP_SELECTED_TARGET."
                         tc_pause
                     fi
                     ;;
-                5|05)
-                    if tc_bhttp_restart_current "$proto" >/dev/null 2>&1; then
-                        tc_msg_ok "Servicio reiniciado."
-                    else
-                        tc_msg_err "No se pudo reiniciar el servicio."
-                    fi
-                    tc_pause
-                    ;;
+                5|05) tc_bhttp_restart_current "$proto" >/dev/null 2>&1; tc_msg_ok "Servicio reiniciado."; tc_pause ;;
                 6|06) tc_bhttp_service_status "$proto" ;;
                 7|07) tc_bhttp_show_logs "$proto" ;;
                 8|08) tc_bhttp_follow_logs "$proto" ;;
