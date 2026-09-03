@@ -349,6 +349,9 @@ tc_bhttp_init_stunnel_conf() {
 cert = ${TC_BHTTP_STUNNEL_DEFAULT_CERT}
 client = no
 pid = /var/run/stunnel4.pid
+TIMEOUTclose = 0
+TIMEOUTidle = 86400
+TIMEOUTbusy = 300
 socket = l:TCP_NODELAY=1
 socket = r:TCP_NODELAY=1
 socket = l:SO_KEEPALIVE=1
@@ -366,6 +369,9 @@ EOF
             printf 'cert = %s\n' "$TC_BHTTP_STUNNEL_DEFAULT_CERT"
             printf 'client = no\n'
             printf 'pid = /var/run/stunnel4.pid\n'
+            printf 'TIMEOUTclose = 0\n'
+            printf 'TIMEOUTidle = 86400\n'
+            printf 'TIMEOUTbusy = 300\n'
             printf 'socket = l:TCP_NODELAY=1\n'
             printf 'socket = r:TCP_NODELAY=1\n'
             printf 'socket = l:SO_KEEPALIVE=1\n'
@@ -390,6 +396,9 @@ accept = ${tls_port}
 connect = 127.0.0.1:${internal_port}
 cert = ${cert}
 key = ${key}
+TIMEOUTclose = 0
+TIMEOUTidle = 86400
+TIMEOUTbusy = 300
 socket = l:TCP_NODELAY=1
 socket = r:TCP_NODELAY=1
 socket = l:SO_KEEPALIVE=1
@@ -818,15 +827,15 @@ tc_bhttp_write_service() {
     case "$proto" in
         btun)
             description="TunnelCore BTUN BHTTP Server (SuperFlash Engine)"
-            extra_args="--listen ${listen_host} --port ${listen_port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 0"
+            extra_args="--listen ${listen_host} --port ${listen_port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 3600 --max-sessions 8192 --request-timeout 60 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 0"
             ;;
         hcr)
             description="TunnelCore HCR Relay"
             local hcr_listen=":${listen_port}"
             [[ "$listen_host" != "0.0.0.0" ]] && hcr_listen="${listen_host}:${listen_port}"
-            extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport plain --max-download-frame 65536 --download-poll-timeout 8s"
+            extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport plain --max-download-frame 65536 --download-poll-timeout 10s"
             if [[ "${BHTTP_TLS:-0}" = "1" && "${BHTTP_TLS_MODE:-}" = "native" ]]; then
-                extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport tls --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY} --max-download-frame 65536 --download-poll-timeout 8s"
+                extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport tls --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY} --max-download-frame 65536 --download-poll-timeout 10s"
             fi
             ;;
         *) return 1 ;;
@@ -841,10 +850,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${bin} ${extra_args}
-Restart=on-failure
-RestartSec=3
+Restart=always
+RestartSec=1
+TimeoutStopSec=15
 User=root
-LimitNOFILE=65536
+LimitNOFILE=1048576
 NoNewPrivileges=true
 
 [Install]
@@ -949,11 +959,11 @@ tc_bhttp_write_extra_service() {
     case "$proto" in
         btun)
             description="TunnelCore BTUN BHTTP Extra Port ${port} (SuperFlash Engine)"
-            extra_args="--listen 0.0.0.0 --port ${port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 0"
+            extra_args="--listen 0.0.0.0 --port ${port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 3600 --max-sessions 8192 --request-timeout 60 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 0"
             ;;
         hcr)
             description="TunnelCore HCR Extra Port ${port}"
-            extra_args="--listen :${port} --target ${target_host}:${target_port} --transport plain --max-download-frame 65536 --download-poll-timeout 8s"
+            extra_args="--listen :${port} --target ${target_host}:${target_port} --transport plain --max-download-frame 65536 --download-poll-timeout 10s"
             ;;
         *) return 1 ;;
     esac
@@ -967,10 +977,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${bin} ${extra_args}
-Restart=on-failure
-RestartSec=3
+Restart=always
+RestartSec=1
+TimeoutStopSec=15
 User=root
-LimitNOFILE=65536
+LimitNOFILE=1048576
 NoNewPrivileges=true
 
 [Install]
