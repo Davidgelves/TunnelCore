@@ -818,15 +818,15 @@ tc_bhttp_write_service() {
     case "$proto" in
         btun)
             description="TunnelCore BTUN BHTTP Server (SuperFlash Engine)"
-            extra_args="--listen ${listen_host} --port ${listen_port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 0 --sequence-wait 0 --max-requests-per-conn 2048"
+            extra_args="--listen ${listen_host} --port ${listen_port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 0"
             ;;
         hcr)
             description="TunnelCore HCR Relay"
             local hcr_listen=":${listen_port}"
             [[ "$listen_host" != "0.0.0.0" ]] && hcr_listen="${listen_host}:${listen_port}"
-            extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
+            extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport plain --max-download-frame 65536 --download-poll-timeout 8s"
             if [[ "${BHTTP_TLS:-0}" = "1" && "${BHTTP_TLS_MODE:-}" = "native" ]]; then
-                extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport tls --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY} --max-download-frame 6144 --download-poll-timeout 8s"
+                extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport tls --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY} --max-download-frame 65536 --download-poll-timeout 8s"
             fi
             ;;
         *) return 1 ;;
@@ -878,7 +878,6 @@ net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_keepalive_time = 60
 net.ipv4.tcp_keepalive_intvl = 15
 net.ipv4.tcp_keepalive_probes = 4
-net.ipv4.tcp_mtu_probing = 1
 EOF
 
     if command -v modprobe >/dev/null 2>&1; then
@@ -892,14 +891,6 @@ EOF
     fi
 
     sysctl -p "$sysctl_file" >/dev/null 2>&1 || sysctl --system >/dev/null 2>&1 || true
-
-    # TCP MSS Clamping para prevenir fragmentación de paquetes en túneles móviles
-    if command -v iptables >/dev/null 2>&1; then
-        iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || \
-            iptables -t mangle -I FORWARD 1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || true
-        iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || \
-            iptables -t mangle -I OUTPUT 1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || true
-    fi
 }
 
 tc_bhttp_start() {
@@ -958,11 +949,11 @@ tc_bhttp_write_extra_service() {
     case "$proto" in
         btun)
             description="TunnelCore BTUN BHTTP Extra Port ${port} (SuperFlash Engine)"
-            extra_args="--listen 0.0.0.0 --port ${port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 0 --sequence-wait 0 --max-requests-per-conn 2048"
+            extra_args="--listen 0.0.0.0 --port ${port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 0"
             ;;
         hcr)
             description="TunnelCore HCR Extra Port ${port}"
-            extra_args="--listen :${port} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
+            extra_args="--listen :${port} --target ${target_host}:${target_port} --transport plain --max-download-frame 65536 --download-poll-timeout 8s"
             ;;
         *) return 1 ;;
     esac
