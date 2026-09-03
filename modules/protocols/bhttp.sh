@@ -890,7 +890,7 @@ tc_bhttp_start() {
     BHTTP_TARGET="$target"
     tc_bhttp_save_conf "$proto"
     tc_bhttp_write_service "$proto" "$port" "$target" || return 1
-    systemctl restart "$service_name" >/dev/null 2>&1
+    systemctl restart "$service_name" >/dev/null 2>&1 || return 1
     tc_bhttp_restart_extra_ports "$proto"
 }
 
@@ -1218,11 +1218,17 @@ tc_bhttp_change_port_menu() {
                 BHTTP_PORT="$new_p"
             fi
             tc_bhttp_save_conf "$proto"
-            tc_bhttp_restart_current "$proto"
-            tc_msg_ok "Puerto TLS actualizado a $new_p."
+            if tc_bhttp_restart_current "$proto"; then
+                tc_msg_ok "Puerto TLS actualizado a $new_p."
+            else
+                tc_msg_err "No se pudo actualizar el puerto TLS a $new_p."
+            fi
         else
-            tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"
-            tc_msg_ok "Puerto actualizado a $new_p."
+            if tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"; then
+                tc_msg_ok "Puerto actualizado a $new_p."
+            else
+                tc_msg_err "No se pudo actualizar el puerto a $new_p."
+            fi
         fi
         tc_pause
         return
@@ -1282,11 +1288,17 @@ tc_bhttp_change_port_menu() {
                 BHTTP_PORT="$new_p"
             fi
             tc_bhttp_save_conf "$proto"
-            tc_bhttp_restart_current "$proto"
-            tc_msg_ok "Puerto principal TLS actualizado a $new_p."
+            if tc_bhttp_restart_current "$proto"; then
+                tc_msg_ok "Puerto principal TLS actualizado a $new_p."
+            else
+                tc_msg_err "No se pudo actualizar el puerto principal TLS a $new_p."
+            fi
         else
-            tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"
-            tc_msg_ok "Puerto principal actualizado a $new_p."
+            if tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"; then
+                tc_msg_ok "Puerto principal actualizado a $new_p."
+            else
+                tc_msg_err "No se pudo actualizar el puerto principal a $new_p."
+            fi
         fi
     else
         tc_bhttp_stop_extra_port "$proto" "$old_port"
@@ -1357,12 +1369,22 @@ tc_bhttp_protocol_menu() {
                     if tc_bhttp_ask_target "$display_port"; then
                         BHTTP_TARGET="$TC_BHTTP_SELECTED_TARGET"
                         tc_bhttp_save_conf "$proto"
-                        tc_bhttp_restart_current "$proto"
-                        tc_msg_ok "Destino actualizado a $TC_BHTTP_SELECTED_TARGET."
+                        if tc_bhttp_restart_current "$proto"; then
+                            tc_msg_ok "Destino actualizado a $TC_BHTTP_SELECTED_TARGET."
+                        else
+                            tc_msg_err "No se pudo actualizar el destino a $TC_BHTTP_SELECTED_TARGET."
+                        fi
                         tc_pause
                     fi
                     ;;
-                5|05) tc_bhttp_restart_current "$proto" >/dev/null 2>&1; tc_msg_ok "Servicio reiniciado."; tc_pause ;;
+                5|05)
+                    if tc_bhttp_restart_current "$proto" >/dev/null 2>&1; then
+                        tc_msg_ok "Servicio reiniciado."
+                    else
+                        tc_msg_err "No se pudo reiniciar el servicio."
+                    fi
+                    tc_pause
+                    ;;
                 6|06) tc_bhttp_service_status "$proto" ;;
                 7|07) tc_bhttp_show_logs "$proto" ;;
                 8|08) tc_bhttp_follow_logs "$proto" ;;
