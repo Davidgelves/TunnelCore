@@ -21,12 +21,14 @@ tc_users_init() {
     grep -qxF "/bin/false" /etc/shells 2>/dev/null || echo "/bin/false" >> /etc/shells
     grep -qxF "/usr/sbin/nologin" /etc/shells 2>/dev/null || echo "/usr/sbin/nologin" >> /etc/shells
 
-    # Instalar comando 'at' si no está presente para los usuarios temporales
+}
+
+tc_users_ensure_atd() {
     if ! command -v at >/dev/null 2>&1; then
         apt-get update -y >/dev/null 2>&1 || true
         apt-get install -y at >/dev/null 2>&1 || true
-        systemctl enable --now atd >/dev/null 2>&1 || true
     fi
+    systemctl enable --now atd >/dev/null 2>&1 || true
 }
 
 tc_valid_username() {
@@ -250,6 +252,7 @@ tc_user_create() {
 # ── 2. CREAR PRUEBA (TEST TEMPORAL) ───────────────────────────
 tc_user_create_test() {
     tc_users_init
+    tc_users_ensure_atd
     tc_clear
     tc_title "CREAR USUARIO DE PRUEBA"
 
