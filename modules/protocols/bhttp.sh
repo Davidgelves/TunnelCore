@@ -349,6 +349,10 @@ tc_bhttp_init_stunnel_conf() {
 cert = ${TC_BHTTP_STUNNEL_DEFAULT_CERT}
 client = no
 pid = /var/run/stunnel4.pid
+socket = l:TCP_NODELAY=1
+socket = r:TCP_NODELAY=1
+socket = l:SO_KEEPALIVE=1
+socket = r:SO_KEEPALIVE=1
 
 EOF
     elif ! awk '
@@ -360,6 +364,12 @@ EOF
         tmp="/tmp/tunnelcore-stunnel-base-$$.conf"
         {
             printf 'cert = %s\n' "$TC_BHTTP_STUNNEL_DEFAULT_CERT"
+            printf 'client = no\n'
+            printf 'pid = /var/run/stunnel4.pid\n'
+            printf 'socket = l:TCP_NODELAY=1\n'
+            printf 'socket = r:TCP_NODELAY=1\n'
+            printf 'socket = l:SO_KEEPALIVE=1\n'
+            printf 'socket = r:SO_KEEPALIVE=1\n\n'
             cat "$TC_BHTTP_STUNNEL_CONF"
         } > "$tmp" && mv "$tmp" "$TC_BHTTP_STUNNEL_CONF"
     fi
@@ -380,6 +390,10 @@ accept = ${tls_port}
 connect = 127.0.0.1:${internal_port}
 cert = ${cert}
 key = ${key}
+socket = l:TCP_NODELAY=1
+socket = r:TCP_NODELAY=1
+socket = l:SO_KEEPALIVE=1
+socket = r:SO_KEEPALIVE=1
 EOF
 
     if [[ -f /etc/default/stunnel4 ]]; then
@@ -804,7 +818,7 @@ tc_bhttp_write_service() {
     case "$proto" in
         btun)
             description="TunnelCore BTUN BHTTP Server (SuperFlash Engine)"
-            extra_args="--listen ${listen_host} --port ${listen_port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 2048"
+            extra_args="--listen ${listen_host} --port ${listen_port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 0 --sequence-wait 0 --max-requests-per-conn 2048"
             ;;
         hcr)
             description="TunnelCore HCR Relay"
@@ -852,8 +866,8 @@ net.core.somaxconn = 32768
 net.core.netdev_max_backlog = 16384
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
-net.ipv4.tcp_rmem = 4096 87380 16777216
-net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv4.tcp_rmem = 4096 131072 16777216
+net.ipv4.tcp_wmem = 4096 131072 16777216
 net.ipv4.ip_local_port_range = 10240 65535
 net.ipv4.tcp_max_syn_backlog = 16384
 net.ipv4.tcp_max_tw_buckets = 262144
@@ -878,6 +892,14 @@ EOF
     fi
 
     sysctl -p "$sysctl_file" >/dev/null 2>&1 || sysctl --system >/dev/null 2>&1 || true
+
+    # TCP MSS Clamping para prevenir fragmentación de paquetes en túneles móviles
+    if command -v iptables >/dev/null 2>&1; then
+        iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || \
+            iptables -t mangle -I FORWARD 1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || true
+        iptables -t mangle -C OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || \
+            iptables -t mangle -I OUTPUT 1 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1 || true
+    fi
 }
 
 tc_bhttp_start() {
@@ -936,7 +958,7 @@ tc_bhttp_write_extra_service() {
     case "$proto" in
         btun)
             description="TunnelCore BTUN BHTTP Extra Port ${port} (SuperFlash Engine)"
-            extra_args="--listen 0.0.0.0 --port ${port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 2048"
+            extra_args="--listen 0.0.0.0 --port ${port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 0 --sequence-wait 0 --max-requests-per-conn 2048"
             ;;
         hcr)
             description="TunnelCore HCR Extra Port ${port}"
