@@ -169,51 +169,25 @@ tc_bhttp_ask_target() {
 }
 
 tc_bhttp_install_binary() {
-    local proto="$1" bin asset local_asset arch
+    local proto="$1" bin asset local_asset
     bin="$(tc_bhttp_bin_path "$proto")"
     [[ -x "$bin" ]] && return 0
 
-    arch="$(uname -m 2>/dev/null || echo amd64)"
-
     case "$proto" in
-        btun)
-            case "$arch" in
-                aarch64|arm64) asset="bilola-server-arm64" ;;
-                *) asset="bilola-server" ;;
-            esac
-            ;;
-        hcr)
-            asset="hcr-server"
-            ;;
+        btun) asset="bilola-server" ;;
+        hcr) asset="hcr-server" ;;
         *) return 1 ;;
     esac
 
     local_asset="${TC_BHTTP_ASSET_DIR}/${asset}"
     if [[ -f "$local_asset" ]]; then
-        tc_msg_ok "Instalando binario ${proto}..."
-        mkdir -p "$(dirname "$bin")"
+        tc_msg_ok "Instalando binario local ${asset}..."
         cp -f "$local_asset" "$bin"
         chmod +x "$bin"
         [[ -x "$bin" ]] && return 0
     fi
 
-    # Fallback directo desde tu propio repositorio TunnelCore (GitHub)
-    local raw_base="https://raw.githubusercontent.com/Davidgelves/TunnelCore/main/modules/protocols/bin"
-    tc_msg_ok "Descargando binario ${asset} desde TunnelCore..."
-    mkdir -p "$(dirname "$bin")"
-    if curl -fsSL --retry 3 --connect-timeout 12 "${raw_base}/${asset}" -o "$bin"; then
-        chmod +x "$bin"
-        [[ -x "$bin" ]] && return 0
-    fi
-
-    # Fallback de respaldo desde tu propio repositorio TunnelCore (GitLab)
-    local gitlab_base="https://gitlab.com/Davidgelves/tunnelcore/-/raw/main/modules/protocols/bin"
-    if curl -fsSL --retry 3 --connect-timeout 12 "${gitlab_base}/${asset}" -o "$bin"; then
-        chmod +x "$bin"
-        [[ -x "$bin" ]] && return 0
-    fi
-
-    tc_msg_err "No se pudo obtener el binario ${asset}."
+    tc_msg_err "Binario local ${asset} no encontrado en ${TC_BHTTP_ASSET_DIR}."
     return 1
 }
 
@@ -349,13 +323,6 @@ tc_bhttp_init_stunnel_conf() {
 cert = ${TC_BHTTP_STUNNEL_DEFAULT_CERT}
 client = no
 pid = /var/run/stunnel4.pid
-TIMEOUTclose = 0
-TIMEOUTidle = 86400
-TIMEOUTbusy = 300
-socket = l:TCP_NODELAY=1
-socket = r:TCP_NODELAY=1
-socket = l:SO_KEEPALIVE=1
-socket = r:SO_KEEPALIVE=1
 
 EOF
     elif ! awk '
@@ -367,15 +334,6 @@ EOF
         tmp="/tmp/tunnelcore-stunnel-base-$$.conf"
         {
             printf 'cert = %s\n' "$TC_BHTTP_STUNNEL_DEFAULT_CERT"
-            printf 'client = no\n'
-            printf 'pid = /var/run/stunnel4.pid\n'
-            printf 'TIMEOUTclose = 0\n'
-            printf 'TIMEOUTidle = 86400\n'
-            printf 'TIMEOUTbusy = 300\n'
-            printf 'socket = l:TCP_NODELAY=1\n'
-            printf 'socket = r:TCP_NODELAY=1\n'
-            printf 'socket = l:SO_KEEPALIVE=1\n'
-            printf 'socket = r:SO_KEEPALIVE=1\n\n'
             cat "$TC_BHTTP_STUNNEL_CONF"
         } > "$tmp" && mv "$tmp" "$TC_BHTTP_STUNNEL_CONF"
     fi
@@ -396,13 +354,6 @@ accept = ${tls_port}
 connect = 127.0.0.1:${internal_port}
 cert = ${cert}
 key = ${key}
-TIMEOUTclose = 0
-TIMEOUTidle = 86400
-TIMEOUTbusy = 300
-socket = l:TCP_NODELAY=1
-socket = r:TCP_NODELAY=1
-socket = l:SO_KEEPALIVE=1
-socket = r:SO_KEEPALIVE=1
 EOF
 
     if [[ -f /etc/default/stunnel4 ]]; then
@@ -826,16 +777,19 @@ tc_bhttp_write_service() {
 
     case "$proto" in
         btun)
-            description="TunnelCore BTUN BHTTP Server (SuperFlash Engine)"
-            extra_args="--listen ${listen_host} --port ${listen_port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 3600 --max-sessions 8192 --request-timeout 60 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 0"
+            description="TunnelCore BTUN BHTTP Server"
+            extra_args="--listen ${listen_host}:${listen_port} --target ${target_host}:${target_port}"
+            if [[ "${BHTTP_TLS:-0}" = "1" && "${BHTTP_TLS_MODE:-}" = "native" ]]; then
+                extra_args="${extra_args} --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY}"
+            fi
             ;;
         hcr)
             description="TunnelCore HCR Relay"
             local hcr_listen=":${listen_port}"
             [[ "$listen_host" != "0.0.0.0" ]] && hcr_listen="${listen_host}:${listen_port}"
-            extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport plain --max-download-frame 65536 --download-poll-timeout 10s"
+            extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
             if [[ "${BHTTP_TLS:-0}" = "1" && "${BHTTP_TLS_MODE:-}" = "native" ]]; then
-                extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport tls --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY} --max-download-frame 65536 --download-poll-timeout 10s"
+                extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport tls --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY} --max-download-frame 6144 --download-poll-timeout 8s"
             fi
             ;;
         *) return 1 ;;
@@ -850,11 +804,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${bin} ${extra_args}
-Restart=always
-RestartSec=1
-TimeoutStopSec=15
+Restart=on-failure
+RestartSec=3
 User=root
-LimitNOFILE=1048576
+LimitNOFILE=65536
 NoNewPrivileges=true
 
 [Install]
@@ -876,8 +829,8 @@ net.core.somaxconn = 32768
 net.core.netdev_max_backlog = 16384
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
-net.ipv4.tcp_rmem = 4096 131072 16777216
-net.ipv4.tcp_wmem = 4096 131072 16777216
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
 net.ipv4.ip_local_port_range = 10240 65535
 net.ipv4.tcp_max_syn_backlog = 16384
 net.ipv4.tcp_max_tw_buckets = 262144
@@ -888,6 +841,7 @@ net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_keepalive_time = 60
 net.ipv4.tcp_keepalive_intvl = 15
 net.ipv4.tcp_keepalive_probes = 4
+net.ipv4.tcp_mtu_probing = 1
 EOF
 
     if command -v modprobe >/dev/null 2>&1; then
@@ -958,12 +912,12 @@ tc_bhttp_write_extra_service() {
 
     case "$proto" in
         btun)
-            description="TunnelCore BTUN BHTTP Extra Port ${port} (SuperFlash Engine)"
-            extra_args="--listen 0.0.0.0 --port ${port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 3600 --max-sessions 8192 --request-timeout 60 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 0"
+            description="TunnelCore BTUN BHTTP Extra Port ${port}"
+            extra_args="--listen 0.0.0.0:${port} --target ${target_host}:${target_port}"
             ;;
         hcr)
             description="TunnelCore HCR Extra Port ${port}"
-            extra_args="--listen :${port} --target ${target_host}:${target_port} --transport plain --max-download-frame 65536 --download-poll-timeout 10s"
+            extra_args="--listen :${port} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
             ;;
         *) return 1 ;;
     esac
@@ -977,11 +931,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${bin} ${extra_args}
-Restart=always
-RestartSec=1
-TimeoutStopSec=15
+Restart=on-failure
+RestartSec=3
 User=root
-LimitNOFILE=1048576
+LimitNOFILE=65536
 NoNewPrivileges=true
 
 [Install]
