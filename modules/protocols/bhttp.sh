@@ -1341,22 +1341,22 @@ tc_bhttp_protocol_menu() {
         tc_title "${label} $(tc_bhttp_status_mark "$proto")"
 
         if tc_bhttp_is_running "$proto"; then
-            local tls_info="${TC_RED}[DESACTIVADO]${TC_NC}"
-            if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
-                tls_info="${TC_GREEN}[ACTIVADO - Puerto: ${BHTTP_TLS_PORT:-443} | Dominio: ${BHTTP_TLS_DOMAIN:-N/A}]${TC_NC}"
-            fi
-
-            printf '%bPUERTO PLANO (DIRECTO):%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${BHTTP_PORT:-8080}" "$TC_NC"
-            printf '%bPUERTO TLS (SSL/SNI):%b    %b\n' "$TC_DARK_GREEN" "$TC_NC" "$tls_info"
+            printf '%bPUERTO PLANO:%b             %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${BHTTP_PORT:-8080}" "$TC_NC"
             printf '%bPUERTOS EXTRA:%b            %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${BHTTP_EXTRA_PORTS:-NINGUNO}" "$TC_NC"
+            if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
+                printf '%bTLS:%b %bo%b %b>%b %bPUERTO:%b %b%s%b %bDOMINIO:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${BHTTP_TLS_PORT:-443}" "$TC_NC" "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_TLS_DOMAIN:-N/A}" "$TC_NC"
+            else
+                printf '%bTLS:%b %bx%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_RED" "$TC_NC"
+            fi
             printf '%bDESTINO LOCAL:%b            %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${BHTTP_TARGET:-127.0.0.1:22}" "$TC_NC"
             tc_line
-            tc_opt "1" "DESACTIVAR ${label} (Apagar servicio)"
+            tc_opt "1" "DESACTIVAR ${label}"
             if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
                 tc_opt "2" "DESACTIVAR TLS"
-                tc_opt "3" "CAMBIAR PUERTO TLS (SSL/SNI)"
+                tc_opt "3" "CAMBIAR PUERTO TLS"
             else
-                tc_opt "2" "ACTIVAR TLS (Modo Dual SSL/SNI)"
+                tc_opt "2" "ACTIVAR TLS"
+                tc_opt "3" "CAMBIAR PUERTO TLS"
             fi
             tc_opt "4" "CAMBIAR PUERTO DIRECTO (PLANO)"
             tc_opt "5" "REDIRIGIR DESTINO (SSH / DROPBEAR / MANUAL)"
