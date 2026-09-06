@@ -599,21 +599,22 @@ tc_bhttp_restart_current() {
     service_name="$(tc_bhttp_service_name "$proto")"
     tc_bhttp_apply_tcp_tuning
 
-    if [[ "${BHTTP_TLS:-0}" = "1" && "${BHTTP_TLS_MODE:-}" = "stunnel" ]]; then
-        BHTTP_TLS_INTERNAL_PORT="${BHTTP_TLS_INTERNAL_PORT:-$(tc_bhttp_tls_internal_port "${BHTTP_TLS_PORT:-443}")}"
-        tc_bhttp_write_service "$proto" "${BHTTP_TLS_INTERNAL_PORT:-$(tc_bhttp_tls_internal_port "${BHTTP_TLS_PORT:-443}")}" "${BHTTP_TARGET:-127.0.0.1:22}" || return 1
-        systemctl restart "$service_name" >/dev/null 2>&1 || return 1
-        tc_bhttp_tcp_listening "${BHTTP_TLS_INTERNAL_PORT}" || return 1
-        tc_bhttp_write_stunnel_section "$proto" "${BHTTP_TLS_PORT:-443}" "${BHTTP_TLS_INTERNAL_PORT}" "$BHTTP_TLS_CERT" "$BHTTP_TLS_KEY" || return 1
+    # En Modo Dual, el servicio principal siempre escucha en BHTTP_PORT (puerto plano directo)
+    tc_bhttp_write_service "$proto" "${BHTTP_PORT:-8080}" "${BHTTP_TARGET:-127.0.0.1:22}" || return 1
+    systemctl restart "$service_name" >/dev/null 2>&1 || return 1
+    tc_bhttp_restart_extra_ports "$proto"
+
+    # Si TLS está activo, Stunnel escucha en BHTTP_TLS_PORT y reenvía a 127.0.0.1:BHTTP_PORT
+    if [[ "${BHTTP_TLS:-0}" = "1" && -n "${BHTTP_TLS_PORT:-}" ]]; then
+        tc_bhttp_write_stunnel_section "$proto" "${BHTTP_TLS_PORT:-443}" "${BHTTP_PORT:-8080}" "$BHTTP_TLS_CERT" "$BHTTP_TLS_KEY" || return 1
     else
-        tc_bhttp_write_service "$proto" "${BHTTP_PORT:-8080}" "${BHTTP_TARGET:-127.0.0.1:22}" || return 1
-        systemctl restart "$service_name" >/dev/null 2>&1 || return 1
-        tc_bhttp_restart_extra_ports "$proto"
+        tc_bhttp_remove_stunnel_section "$proto"
+        systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
     fi
 }
 
 tc_bhttp_enable_tls() {
-    local proto="$1" label tls_port domain cert key old_port old_tls old_tls_port old_domain old_cert old_key old_mode old_internal old_plain mode internal_port
+    local proto="$1" label tls_port domain cert key
     label="$(tc_bhttp_label "$proto")"
     tc_bhttp_load_conf "$proto"
 
@@ -623,26 +624,21 @@ tc_bhttp_enable_tls() {
         return
     fi
 
-    old_port="$BHTTP_PORT"
-    old_tls="$BHTTP_TLS"
-    old_tls_port="$BHTTP_TLS_PORT"
-    old_domain="$BHTTP_TLS_DOMAIN"
-    old_cert="$BHTTP_TLS_CERT"
-    old_key="$BHTTP_TLS_KEY"
-    old_mode="$BHTTP_TLS_MODE"
-    old_internal="$BHTTP_TLS_INTERNAL_PORT"
-    old_plain="$BHTTP_PLAIN_PORT"
-
-    printf '%bPuerto TLS publico [Enter = %s]:%b ' "$TC_DARK_GREEN" "${BHTTP_PORT:-8080}" "$TC_NC"
+    printf '%bPuerto TLS publico (SSL/SNI) [Enter = 443]:%b ' "$TC_DARK_GREEN" "$TC_NC"
     read -r tls_port
-    [[ -z "$tls_port" ]] && tls_port="${BHTTP_PORT:-8080}"
+    [[ -z "$tls_port" ]] && tls_port="443"
     if ! tc_valid_port "$tls_port"; then
         tc_msg_err "Puerto TLS no valido."
         tc_pause
         return
     fi
-    if [[ "$tls_port" != "${BHTTP_PORT:-8080}" ]] && tc_port_in_use "$tls_port"; then
-        tc_msg_err "El puerto TLS $tls_port ya esta en uso."
+    if [[ "$tls_port" = "${BHTTP_PORT:-8080}" ]] || tc_bhttp_port_in_list "${BHTTP_EXTRA_PORTS:-}" "$tls_port"; then
+        tc_msg_err "El puerto $tls_port ya esta ocupado por el modo directo."
+        tc_pause
+        return
+    fi
+    if tc_port_in_use "$tls_port"; then
+        tc_msg_err "El puerto TLS $tls_port ya esta en uso por otro servicio."
         tc_pause
         return
     fi
@@ -678,63 +674,28 @@ tc_bhttp_enable_tls() {
     esac
 
     if ! tc_bhttp_ensure_cert "$domain"; then
-        BHTTP_PORT="$old_port"; BHTTP_TLS="$old_tls"; BHTTP_TLS_PORT="$old_tls_port"; BHTTP_TLS_DOMAIN="$old_domain"
-        BHTTP_TLS_CERT="$old_cert"; BHTTP_TLS_KEY="$old_key"; BHTTP_TLS_MODE="$old_mode"; BHTTP_TLS_INTERNAL_PORT="$old_internal"
-        BHTTP_PLAIN_PORT="$old_plain"
-        tc_bhttp_save_conf "$proto"
         tc_pause
         return
     fi
     cert="$BHTTP_TLS_CERT"
     key="$BHTTP_TLS_KEY"
 
-    mode="stunnel"
-    if tc_bhttp_supports_native_tls "$proto"; then
-        mode="native"
-    fi
-
-    if [[ "$mode" = "native" ]]; then
-        BHTTP_PORT="$tls_port"
-        BHTTP_TLS_INTERNAL_PORT=""
-    else
-        internal_port="$(tc_bhttp_find_free_internal_port "$tls_port")" || {
-            tc_msg_err "No se encontro un puerto interno libre para ${label}."
-            BHTTP_PORT="$old_port"; BHTTP_TLS="$old_tls"; BHTTP_TLS_PORT="$old_tls_port"; BHTTP_TLS_DOMAIN="$old_domain"
-            BHTTP_TLS_CERT="$old_cert"; BHTTP_TLS_KEY="$old_key"; BHTTP_TLS_MODE="$old_mode"; BHTTP_TLS_INTERNAL_PORT="$old_internal"
-            BHTTP_PLAIN_PORT="$old_plain"
-            tc_bhttp_save_conf "$proto"
-            tc_pause
-            return
-        }
-        BHTTP_TLS_INTERNAL_PORT="$internal_port"
-    fi
-
     BHTTP_TLS="1"
     BHTTP_TLS_PORT="$tls_port"
     BHTTP_TLS_DOMAIN="$domain"
     BHTTP_TLS_CERT="$cert"
     BHTTP_TLS_KEY="$key"
-    BHTTP_TLS_MODE="$mode"
-    BHTTP_PLAIN_PORT="${old_plain:-$old_port}"
+    BHTTP_TLS_MODE="stunnel"
     tc_bhttp_save_conf "$proto"
 
     if tc_bhttp_restart_current "$proto" && tc_bhttp_tcp_listening "$tls_port"; then
-        if [[ -n "${BHTTP_EXTRA_PORTS:-}" ]]; then
-            IFS=',' read -ra _items <<<"$BHTTP_EXTRA_PORTS"
-            for item in "${_items[@]}"; do
-                [[ -n "$item" ]] && tc_bhttp_stop_extra_port "$proto" "$item"
-            done
-        fi
-        if [[ "$mode" = "stunnel" ]]; then
-            tc_msg_ok "${label} TLS activo en puerto $tls_port via Stunnel."
-        else
-            tc_msg_ok "${label} TLS nativo activo en puerto $tls_port."
-        fi
+        tc_msg_ok "Modo Dual activo para ${label}."
+        printf '%bPuerto Directo (Plano):%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${BHTTP_PORT:-8080}" "$TC_NC"
+        printf '%bPuerto TLS (SSL/SNI):%b   %b%s%b (Dominio: %s)\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$tls_port" "$TC_NC" "$domain"
     else
-        tc_bhttp_tls_fail_diag "$proto" "$tls_port" "$internal_port"
-        BHTTP_PORT="$old_port"; BHTTP_TLS="$old_tls"; BHTTP_TLS_PORT="$old_tls_port"; BHTTP_TLS_DOMAIN="$old_domain"
-        BHTTP_TLS_CERT="$old_cert"; BHTTP_TLS_KEY="$old_key"; BHTTP_TLS_MODE="$old_mode"; BHTTP_TLS_INTERNAL_PORT="$old_internal"
-        BHTTP_PLAIN_PORT="$old_plain"
+        tc_bhttp_tls_fail_diag "$proto" "$tls_port" "${BHTTP_PORT:-8080}"
+        BHTTP_TLS="0"
+        BHTTP_TLS_PORT=""
         tc_bhttp_save_conf "$proto"
         tc_bhttp_restart_current "$proto" >/dev/null 2>&1 || true
     fi
@@ -742,7 +703,7 @@ tc_bhttp_enable_tls() {
 }
 
 tc_bhttp_disable_tls() {
-    local proto="$1" label old_tls old_tls_port old_domain old_cert old_key old_mode old_internal old_plain plain_port
+    local proto="$1" label
     label="$(tc_bhttp_label "$proto")"
     tc_bhttp_load_conf "$proto"
 
@@ -752,36 +713,124 @@ tc_bhttp_disable_tls() {
         return
     fi
 
-    old_tls="$BHTTP_TLS"; old_tls_port="$BHTTP_TLS_PORT"; old_domain="$BHTTP_TLS_DOMAIN"
-    old_cert="$BHTTP_TLS_CERT"; old_key="$BHTTP_TLS_KEY"; old_mode="$BHTTP_TLS_MODE"; old_internal="$BHTTP_TLS_INTERNAL_PORT"
-    old_plain="$BHTTP_PLAIN_PORT"
-    plain_port="${BHTTP_PLAIN_PORT:-8080}"
-
-    if [[ "${BHTTP_TLS_MODE:-}" = "stunnel" ]]; then
-        tc_bhttp_remove_stunnel_section "$proto"
-        systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
-    fi
-
     BHTTP_TLS="0"
     BHTTP_TLS_PORT=""
-    BHTTP_TLS_DOMAIN=""
-    BHTTP_TLS_CERT=""
-    BHTTP_TLS_KEY=""
-    BHTTP_TLS_MODE=""
-    BHTTP_TLS_INTERNAL_PORT=""
-    BHTTP_PLAIN_PORT=""
-    BHTTP_PORT="$plain_port"
     tc_bhttp_save_conf "$proto"
 
-    if tc_bhttp_restart_current "$proto"; then
-        tc_msg_ok "TLS desactivado para ${label}. Servicio normal restaurado en puerto ${BHTTP_PORT}."
-    else
-        BHTTP_TLS="$old_tls"; BHTTP_TLS_PORT="$old_tls_port"; BHTTP_TLS_DOMAIN="$old_domain"
-        BHTTP_TLS_CERT="$old_cert"; BHTTP_TLS_KEY="$old_key"; BHTTP_TLS_MODE="$old_mode"; BHTTP_TLS_INTERNAL_PORT="$old_internal"
-        BHTTP_PLAIN_PORT="$old_plain"
-        tc_bhttp_save_conf "$proto"
-        tc_msg_err "No se pudo desactivar TLS correctamente. Se conservo la configuracion previa."
+    tc_bhttp_remove_stunnel_section "$proto"
+    systemctl restart stunnel4 >/dev/null 2>&1 || service stunnel4 restart >/dev/null 2>&1 || true
+
+    tc_msg_ok "TLS desactivado para ${label}. Modo directo sigue activo en puerto ${BHTTP_PORT:-8080}."
+    tc_pause
+}
+
+tc_bhttp_change_tls_port() {
+    local proto="$1" label new_p
+    label="$(tc_bhttp_label "$proto")"
+    tc_bhttp_load_conf "$proto"
+
+    if [[ "${BHTTP_TLS:-0}" != "1" ]]; then
+        tc_msg_err "TLS no esta activo."
+        tc_pause
+        return
     fi
+
+    printf '%bNuevo puerto TLS [Enter = %s]:%b ' "$TC_DARK_GREEN" "${BHTTP_TLS_PORT:-443}" "$TC_NC"
+    read -r new_p
+    [[ -z "$new_p" ]] && new_p="${BHTTP_TLS_PORT:-443}"
+    if ! tc_valid_port "$new_p"; then
+        tc_msg_err "Puerto no valido."
+        tc_pause
+        return
+    fi
+    if [[ "$new_p" = "${BHTTP_PORT:-8080}" ]] || tc_bhttp_port_in_list "${BHTTP_EXTRA_PORTS:-}" "$new_p"; then
+        tc_msg_err "El puerto $new_p ya esta ocupado por el modo directo."
+        tc_pause
+        return
+    fi
+    if [[ "$new_p" != "${BHTTP_TLS_PORT:-443}" ]] && tc_port_in_use "$new_p"; then
+        tc_msg_err "El puerto $new_p ya esta en uso."
+        tc_pause
+        return
+    fi
+
+    BHTTP_TLS_PORT="$new_p"
+    tc_bhttp_save_conf "$proto"
+    tc_bhttp_restart_current "$proto"
+    tc_msg_ok "Puerto TLS actualizado a $new_p."
+    tc_pause
+}
+
+tc_bhttp_delete_cert_menu() {
+    local domains=() domain sel idx=1 live_dir="/etc/letsencrypt/live" p
+    tc_clear
+    tc_title "GESTIONAR / ELIMINAR CERTIFICADOS TLS"
+
+    if [[ -d "$live_dir" ]]; then
+        for d in "$live_dir"/*; do
+            [[ -d "$d" ]] || continue
+            domain="${d##*/}"
+            [[ "$domain" = "README" ]] && continue
+            domains+=("$domain")
+        done
+    fi
+
+    if [[ ${#domains[@]} -eq 0 ]]; then
+        tc_msg_warn "No se encontraron certificados Let's Encrypt en la VPS."
+        tc_pause
+        return
+    fi
+
+    printf '%bCertificados instalados en la VPS:%b\n' "$TC_YELLOW" "$TC_NC"
+    tc_line
+    for domain in "${domains[@]}"; do
+        printf '%b[%d]%b %b>%b %b%s%b\n' "$TC_NEON" "$idx" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_GREEN" "$domain" "$TC_NC"
+        ((idx++))
+    done
+    tc_line
+    tc_opt "0" "$(_t 'cancel')"
+    tc_line
+    tc_prompt
+    read -r sel
+
+    [[ "$sel" = "0" || "$sel" = "00" ]] && return
+    if ! [[ "$sel" =~ ^[0-9]+$ ]] || (( sel < 1 || sel >= idx )); then
+        tc_msg_err "Opcion no valida."
+        tc_pause
+        return
+    fi
+
+    domain="${domains[$((sel - 1))]}"
+    tc_line
+    printf '%bATENCION:%b Va a eliminar el certificado para: %b%s%b\n' "$TC_RED" "$TC_NC" "$TC_GREEN" "$domain" "$TC_NC"
+    if ! tc_confirm "Desea eliminar definitivamente este certificado?"; then
+        return
+    fi
+
+    tc_msg_warn "Eliminando certificado para ${domain}..."
+    if command -v certbot >/dev/null 2>&1; then
+        certbot delete --cert-name "$domain" --non-interactive >/dev/null 2>&1 || true
+    fi
+    rm -rf "/etc/letsencrypt/live/${domain}" "/etc/letsencrypt/archive/${domain}" "/etc/letsencrypt/renewal/${domain}.conf" 2>/dev/null || true
+
+    for p in btun hcr; do
+        local conf="/etc/tunnelcore/bhttp/${p}.conf"
+        if [[ -f "$conf" ]]; then
+            tc_bhttp_load_conf "$p"
+            if [[ "${BHTTP_TLS_DOMAIN:-}" = "$domain" ]]; then
+                BHTTP_TLS="0"
+                BHTTP_TLS_PORT=""
+                BHTTP_TLS_DOMAIN=""
+                BHTTP_TLS_CERT=""
+                BHTTP_TLS_KEY=""
+                BHTTP_TLS_MODE=""
+                tc_bhttp_save_conf "$p"
+                tc_bhttp_restart_current "$p" >/dev/null 2>&1 || true
+            fi
+        fi
+    done
+
+    tc_msg_ok "Certificado para ${domain} eliminado correctamente."
     tc_pause
 }
 
@@ -793,27 +842,14 @@ tc_bhttp_write_service() {
     bin="$(tc_bhttp_bin_path "$proto")"
     target_host="${target%:*}"
     target_port="${target##*:}"
-    listen_host="0.0.0.0"
-    listen_port="$port"
-
-    if [[ "${BHTTP_TLS:-0}" = "1" && "${BHTTP_TLS_MODE:-}" = "stunnel" ]]; then
-        listen_host="127.0.0.1"
-        listen_port="${BHTTP_TLS_INTERNAL_PORT:-$(tc_bhttp_tls_internal_port "$port")}"
-    fi
-
     case "$proto" in
         btun)
             description="TunnelCore BTUN BHTTP Server (SuperFlash Engine)"
-            extra_args="--listen ${listen_host} --port ${listen_port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 2048"
+            extra_args="--listen 0.0.0.0 --port ${port} --backend-host ${target_host} --backend-port ${target_port} --session-ttl 180 --max-sessions 4096 --request-timeout 30 --read-wait-ms 2 --sequence-wait 6 --max-requests-per-conn 2048"
             ;;
         hcr)
             description="TunnelCore HCR Relay"
-            local hcr_listen=":${listen_port}"
-            [[ "$listen_host" != "0.0.0.0" ]] && hcr_listen="${listen_host}:${listen_port}"
-            extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
-            if [[ "${BHTTP_TLS:-0}" = "1" && "${BHTTP_TLS_MODE:-}" = "native" ]]; then
-                extra_args="--listen ${hcr_listen} --target ${target_host}:${target_port} --transport tls --tls-cert ${BHTTP_TLS_CERT} --tls-key ${BHTTP_TLS_KEY} --max-download-frame 6144 --download-poll-timeout 8s"
-            fi
+            extra_args="--listen :${port} --target ${target_host}:${target_port} --transport plain --max-download-frame 6144 --download-poll-timeout 8s"
             ;;
         *) return 1 ;;
     esac
@@ -1117,16 +1153,15 @@ tc_bhttp_add_extra_port_menu() {
     label="$(tc_bhttp_label "$proto")"
     tc_bhttp_load_conf "$proto"
 
-    if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
-        tc_msg_warn "Desactive TLS antes de agregar puertos plain adicionales."
-        tc_pause
-        return
-    fi
-
     printf '%bNuevo puerto adicional para %s:%b ' "$TC_DARK_GREEN" "$label" "$TC_NC"
     read -r port
     if ! tc_valid_port "$port"; then
         tc_msg_err "Puerto no valido."
+        tc_pause
+        return
+    fi
+    if [[ "${BHTTP_TLS:-0}" = "1" && "$port" = "${BHTTP_TLS_PORT:-443}" ]]; then
+        tc_msg_err "Ese puerto ya esta ocupado por el modo TLS ($BHTTP_TLS_PORT)."
         tc_pause
         return
     fi
@@ -1193,45 +1228,41 @@ tc_bhttp_remove_extra_port_menu() {
 }
 
 tc_bhttp_change_port_menu() {
-    local proto="$1" label display_port ports=() idx sel old_port new_p
+    local proto="$1" label ports=() idx sel old_port new_p
     label="$(tc_bhttp_label "$proto")"
     tc_bhttp_load_conf "$proto"
-    display_port="$(tc_bhttp_display_port)"
 
     if [[ -z "${BHTTP_EXTRA_PORTS:-}" ]]; then
-        printf '%bNuevo puerto [Enter = %s]:%b ' "$TC_DARK_GREEN" "$display_port" "$TC_NC"
+        printf '%bNuevo puerto directo (plano) [Enter = %s]:%b ' "$TC_DARK_GREEN" "${BHTTP_PORT:-8080}" "$TC_NC"
         read -r new_p
-        [[ -z "$new_p" ]] && new_p="$display_port"
+        [[ -z "$new_p" ]] && new_p="${BHTTP_PORT:-8080}"
         if ! tc_valid_port "$new_p"; then
             tc_msg_err "Puerto no valido."
             tc_pause
             return
         fi
-        if tc_port_in_use "$new_p" && [[ "$new_p" != "$display_port" ]]; then
+        if [[ "${BHTTP_TLS:-0}" = "1" && "$new_p" = "${BHTTP_TLS_PORT:-443}" ]]; then
+            tc_msg_err "Ese puerto ya esta ocupado por el modo TLS ($BHTTP_TLS_PORT)."
+            tc_pause
+            return
+        fi
+        if tc_port_in_use "$new_p" && [[ "$new_p" != "${BHTTP_PORT:-8080}" ]]; then
             tc_msg_err "El puerto $new_p ya esta en uso."
             tc_pause
             return
         fi
-        if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
-            BHTTP_TLS_PORT="$new_p"
-            if [[ "${BHTTP_TLS_MODE:-}" = "native" ]]; then
-                BHTTP_PORT="$new_p"
-            fi
-            tc_bhttp_save_conf "$proto"
-            tc_bhttp_restart_current "$proto"
-            tc_msg_ok "Puerto TLS actualizado a $new_p."
-        else
-            tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"
-            tc_msg_ok "Puerto actualizado a $new_p."
-        fi
+        BHTTP_PORT="$new_p"
+        tc_bhttp_save_conf "$proto"
+        tc_bhttp_restart_current "$proto"
+        tc_msg_ok "Puerto directo actualizado a $new_p."
         tc_pause
         return
     fi
 
     IFS=',' read -ra ports <<<"$BHTTP_EXTRA_PORTS"
     tc_clear
-    tc_title "CAMBIAR PUERTO ${label}"
-    printf '%b[1]%b %b>%b %bPuerto principal %s%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_WHITE" "$display_port" "$TC_NC"
+    tc_title "CAMBIAR PUERTO DIRECTO ${label}"
+    printf '%b[1]%b %b>%b %bPuerto principal %s%b\n' "$TC_NEON" "$TC_NC" "$TC_WHITE" "$TC_NC" "$TC_WHITE" "${BHTTP_PORT:-8080}" "$TC_NC"
     idx=2
     for old_port in "${ports[@]}"; do
         [[ -z "$old_port" ]] && continue
@@ -1252,7 +1283,7 @@ tc_bhttp_change_port_menu() {
     fi
 
     if (( sel == 1 )); then
-        old_port="$display_port"
+        old_port="${BHTTP_PORT:-8080}"
     else
         old_port="${ports[$((sel - 2))]}"
     fi
@@ -1264,7 +1295,12 @@ tc_bhttp_change_port_menu() {
         tc_pause
         return
     fi
-    if [[ "$new_p" = "$display_port" ]] || tc_bhttp_port_in_list "${BHTTP_EXTRA_PORTS:-}" "$new_p"; then
+    if [[ "${BHTTP_TLS:-0}" = "1" && "$new_p" = "${BHTTP_TLS_PORT:-443}" ]]; then
+        tc_msg_err "Ese puerto ya esta ocupado por el modo TLS ($BHTTP_TLS_PORT)."
+        tc_pause
+        return
+    fi
+    if [[ "$new_p" = "${BHTTP_PORT:-8080}" ]] || tc_bhttp_port_in_list "${BHTTP_EXTRA_PORTS:-}" "$new_p"; then
         tc_msg_err "Ese puerto ya esta configurado."
         tc_pause
         return
@@ -1276,18 +1312,10 @@ tc_bhttp_change_port_menu() {
     fi
 
     if (( sel == 1 )); then
-        if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
-            BHTTP_TLS_PORT="$new_p"
-            if [[ "${BHTTP_TLS_MODE:-}" = "native" ]]; then
-                BHTTP_PORT="$new_p"
-            fi
-            tc_bhttp_save_conf "$proto"
-            tc_bhttp_restart_current "$proto"
-            tc_msg_ok "Puerto principal TLS actualizado a $new_p."
-        else
-            tc_bhttp_start "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"
-            tc_msg_ok "Puerto principal actualizado a $new_p."
-        fi
+        BHTTP_PORT="$new_p"
+        tc_bhttp_save_conf "$proto"
+        tc_bhttp_restart_current "$proto"
+        tc_msg_ok "Puerto principal actualizado a $new_p."
     else
         tc_bhttp_stop_extra_port "$proto" "$old_port"
         if tc_bhttp_start_extra_port "$proto" "$new_p" "${BHTTP_TARGET:-127.0.0.1:22}"; then
@@ -1304,7 +1332,7 @@ tc_bhttp_change_port_menu() {
 }
 
 tc_bhttp_protocol_menu() {
-    local proto="$1" label opt new_p display_port
+    local proto="$1" label opt
     label="$(tc_bhttp_label "$proto")"
 
     while true; do
@@ -1313,30 +1341,32 @@ tc_bhttp_protocol_menu() {
         tc_title "${label} $(tc_bhttp_status_mark "$proto")"
 
         if tc_bhttp_is_running "$proto"; then
-            display_port="$(tc_bhttp_display_port)"
-            printf '%bPUERTO:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "$display_port" "$TC_NC"
-            printf '%bPUERTOS EXTRA:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${BHTTP_EXTRA_PORTS:-NINGUNO}" "$TC_NC"
-            printf '%bDESTINO:%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${BHTTP_TARGET:-127.0.0.1:22}" "$TC_NC"
-            printf '%bTLS:%b %b%s%b' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "$(tc_bhttp_tls_mark)" "$TC_NC"
+            local tls_info="${TC_RED}[DESACTIVADO]${TC_NC}"
             if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
-                printf '  %bMODO:%b %b%s%b' "$TC_DARK_GREEN" "$TC_NC" "$TC_WHITE" "${BHTTP_TLS_MODE:-N/A}" "$TC_NC"
+                tls_info="${TC_GREEN}[ACTIVADO - Puerto: ${BHTTP_TLS_PORT:-443} | Dominio: ${BHTTP_TLS_DOMAIN:-N/A}]${TC_NC}"
             fi
-            printf '\n'
+
+            printf '%bPUERTO PLANO (DIRECTO):%b %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${BHTTP_PORT:-8080}" "$TC_NC"
+            printf '%bPUERTO TLS (SSL/SNI):%b    %b\n' "$TC_DARK_GREEN" "$TC_NC" "$tls_info"
+            printf '%bPUERTOS EXTRA:%b            %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_GREEN" "${BHTTP_EXTRA_PORTS:-NINGUNO}" "$TC_NC"
+            printf '%bDESTINO LOCAL:%b            %b%s%b\n' "$TC_DARK_GREEN" "$TC_NC" "$TC_PALE_GOLD" "${BHTTP_TARGET:-127.0.0.1:22}" "$TC_NC"
             tc_line
-            tc_opt "1" "DESACTIVAR ${label}"
+            tc_opt "1" "DESACTIVAR ${label} (Apagar servicio)"
             if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
                 tc_opt "2" "DESACTIVAR TLS"
+                tc_opt "3" "CAMBIAR PUERTO TLS (SSL/SNI)"
             else
-                tc_opt "2" "ACTIVAR TLS"
+                tc_opt "2" "ACTIVAR TLS (Modo Dual SSL/SNI)"
             fi
-            tc_opt "3" "CAMBIAR PUERTO"
-            tc_opt "4" "REDIRIGIR DESTINO (SSH / DROPBEAR / MANUAL)"
-            tc_opt "5" "REINICIAR"
-            tc_opt "6" "ESTADO"
-            tc_opt "7" "VER LOG"
-            tc_opt "8" "LOG EN VIVO"
-            tc_opt "9" "AGREGAR OTRO PUERTO"
-            tc_opt "10" "QUITAR PUERTO ADICIONAL"
+            tc_opt "4" "CAMBIAR PUERTO DIRECTO (PLANO)"
+            tc_opt "5" "REDIRIGIR DESTINO (SSH / DROPBEAR / MANUAL)"
+            tc_opt "6" "REINICIAR SERVICIO"
+            tc_opt "7" "ESTADO DEL SERVICIO"
+            tc_opt "8" "VER LOG"
+            tc_opt "9" "LOG EN VIVO"
+            tc_opt "10" "AGREGAR OTRO PUERTO PLANO"
+            tc_opt "11" "QUITAR PUERTO ADICIONAL"
+            tc_opt "12" "GESTIONAR / ELIMINAR CERTIFICADOS TLS"
             tc_line
             tc_opt "0" "$(_t 'back')"
             tc_line
@@ -1352,9 +1382,17 @@ tc_bhttp_protocol_menu() {
                         tc_bhttp_enable_tls "$proto"
                     fi
                     ;;
-                3|03) tc_bhttp_change_port_menu "$proto" ;;
-                4|04)
-                    if tc_bhttp_ask_target "$display_port"; then
+                3|03)
+                    if [[ "${BHTTP_TLS:-0}" = "1" ]]; then
+                        tc_bhttp_change_tls_port "$proto"
+                    else
+                        tc_msg_err "Active TLS primero para cambiar el puerto TLS."
+                        tc_pause
+                    fi
+                    ;;
+                4|04) tc_bhttp_change_port_menu "$proto" ;;
+                5|05)
+                    if tc_bhttp_ask_target "${BHTTP_PORT:-8080}"; then
                         BHTTP_TARGET="$TC_BHTTP_SELECTED_TARGET"
                         tc_bhttp_save_conf "$proto"
                         tc_bhttp_restart_current "$proto"
@@ -1362,17 +1400,19 @@ tc_bhttp_protocol_menu() {
                         tc_pause
                     fi
                     ;;
-                5|05) tc_bhttp_restart_current "$proto" >/dev/null 2>&1; tc_msg_ok "Servicio reiniciado."; tc_pause ;;
-                6|06) tc_bhttp_service_status "$proto" ;;
-                7|07) tc_bhttp_show_logs "$proto" ;;
-                8|08) tc_bhttp_follow_logs "$proto" ;;
-                9|09) tc_bhttp_add_extra_port_menu "$proto" ;;
-                10) tc_bhttp_remove_extra_port_menu "$proto" ;;
+                6|06) tc_bhttp_restart_current "$proto" >/dev/null 2>&1; tc_msg_ok "Servicio reiniciado."; tc_pause ;;
+                7|07) tc_bhttp_service_status "$proto" ;;
+                8|08) tc_bhttp_show_logs "$proto" ;;
+                9|09) tc_bhttp_follow_logs "$proto" ;;
+                10) tc_bhttp_add_extra_port_menu "$proto" ;;
+                11) tc_bhttp_remove_extra_port_menu "$proto" ;;
+                12) tc_bhttp_delete_cert_menu ;;
                 0|00) break ;;
                 *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
             esac
         else
             tc_opt "1" "ACTIVAR ${label}"
+            tc_opt "2" "GESTIONAR / ELIMINAR CERTIFICADOS TLS"
             tc_line
             tc_opt "0" "$(_t 'back')"
             tc_line
@@ -1380,6 +1420,7 @@ tc_bhttp_protocol_menu() {
             read -r opt
             case "$opt" in
                 1|01) tc_bhttp_configure "$proto" ;;
+                2|02) tc_bhttp_delete_cert_menu ;;
                 0|00) break ;;
                 *) tc_msg_err "$(_t 'invalid_option')"; sleep 1 ;;
             esac
